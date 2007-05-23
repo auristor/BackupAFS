@@ -64,7 +64,7 @@ sub getLevel {
 	# Given a backup number, parse the BPC backups file to determine
 	# that backup's level.
 	my ($dump) = @_;
-	my $level = undef;
+	my $level = 99999;
 	my $backupsfile = "$clientDir/backups";
 	open BF,"<$backupsfile" or die "Couldn't open backups file for reading";
 	while (<BF>) {
@@ -75,7 +75,6 @@ sub getLevel {
 		last;
 	}
 	close (BF);
-        $level = 0 if ( !$level);
 	return $level;
 }
 
@@ -402,6 +401,7 @@ if (( $type eq "full" ) || ( $type eq "incr" )) {
 	for ( $i = $bkupSrcNum ; $level > 0 && $i >= 0; $i--) {
 		$testlevel = getLevel($i);
 		next if ($testlevel >= $level );
+                next if ($testlevel == 99999 );
 
 		# $i's level is < current level... so it's a parent dump
 		$level = $testlevel; #2
