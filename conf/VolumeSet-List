@@ -1,0 +1,63 @@
+#============================================================= -a-perl-*-
+#
+# VolSet file list for BackupAFS.
+#
+# DESCRIPTION
+#
+#   This file lists all the volsets that should be backed up by
+#   BackupAFS.
+#
+#   Each line in the volsets file contains eighteen fields, separated
+#   by colons (:)
+#
+#     - The volset name.  This should be alphanumeric and unique.
+#
+#     - User name (unix login/email name) of the user who "owns"
+#       or uses this volumeset.  This is the user who will be sent
+#       email about this machine, and this user will have permission
+#       to stop/start/browse/restore backups for this volset.  This
+#       user name must match the name the user authenticates with
+#       via apache. OPTIONAL
+#
+#     - Optional additional user names (comma separated, no white space) of
+#       users who are also allowed to stop/start/browse/restore backups
+#       for this client via the CGI interface.  These users are not sent
+#       email.  These do not need to be valid email names; they simply
+#       need to match the name the user authenticates with via apache. OPTIONAL
+#
+#     - Entry1 Servers regular expression. Matching servernames will be queried for
+#       matching partitions and volumes
+#
+#     - Entry1 Partitions regular expression. Matching partition names on the
+#       specified servers will be queried for volumes. 
+#
+#     - Entry1 Volumes regular expression. Matching volumenames on candidate
+#       Server/Partition will be backed up when the containing volumeset is
+#       backed up. The combination of Server and Partition define one or more
+#       locations for candidate volumes. Volumes selects the exact volume(s) to
+#       be backed up.
+# 
+#     - EntryN [Servers|Partitions|Volumes]. It is often useful to combine more
+#       than one set of Server/Partition/Volume regular expressions in a single
+#       volumeset. Up to 5 triples may be specified in each volumeset. At LEAST
+#       one triple must be specified per volumeset. Entries 2-5 are optional and
+#       may be blank.
+#
+# AUTHOR
+#   Stephen Joyce <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   (C) 2010 Stephen Joyce <stephen@email.unc.edu>
+#
+#   See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+#
+# The first non-comment non-empty line gives the field names and should
+# not be edited!!
+#
+volset:user:moreUsers:Entry1_Servers:Entry1_Partitions:Entry1_Volumes:Entry2_Servers:Entry2_Partitions:Entry2_Volumes:Entry3_Servers:Entry3_Partitions:Entry3_Volumes:Entry4_Servers:Entry4_Partitions:Entry4_Volumes:Entry5_Servers:Entry5_Partitions:Entry5_Volumes
+#user_a:backup::.*:.*:user\.a.*\.backup:.*:::::::::::                                         < -- Example to backup all "user.a*" volumes
+#prj_someuser:backup::.*:.*:prj\.someuser\.backup:.*:.*:prj\.someuser\..*\.backup:::::::::    < -- Example to backup all "prj.someuser.*" volumes
+#afs_all:backup::.*:.*:afs\..*\.backup::::::::::::                                            <--- Example to backup all "afs.*" volumes

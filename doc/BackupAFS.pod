@@ -1,0 +1,2597 @@
+=head1 BackupAFS Introduction
+
+This documentation describes BackupAFS version 1.0.0,
+released on 12 Nov 2010.
+
+=head2 Overview
+
+BackupAFS is a high-performance, enterprise-grade system for backing up 
+OpenAFS volumes to a server's disk. This is a strategy commonly known as 
+"disk to disk", or "disk2disk" backup, and thanks to the low cost and 
+high performance of modern hard disks, is both fast and economical. 
+BackupAFS is highly configurable and easy to install and maintain.
+
+Given the ever decreasing cost of disks and raid systems, it is now 
+practical and cost effective to store backups on a (remote) server's 
+local disk or network storage. For some sites this might be the complete 
+backup solution. For other sites additional permanent archives could be 
+created by periodically backing up the server to tape.
+
+Features include:
+
+=over 4
+
+=item *
+
+Optional compression provides additional reductions in storage (around 35-40%, depending on your data).
+
+=item *
+
+A powerful http/cgi user interface allows administrators to view the current status, edit configuration, add/delete volumesets, view log files, and allows users to initiate and cancel backups and browse and restore volumes from backups.
+
+=item *
+
+No additional software is needed. BackupAFS uses the OpenAFS 'vos' binary and stores its files in standard 'vos dump' format.
+
+=item *
+
+Flexible restore options. Volume dump files can be downloaded from any backup directly from the CGI interface. Volumes may also be restored directly into AFS, overwriting any existing volume of the same name or with an optional extension (.restore for instance) to prevent namespace collisions.
+
+=item *
+
+Flexible configuration parameters allow a configurable number of multiple backups to be performed in parallel, specification of which volumes to backup, various schedules for full and incremental backups, schedules for email notifications to users and admins and so on. Configuration parameters can be set system-wide or also on a per-volumeset basis.
+
+=item *
+
+Admins (and optionally users) may be sent periodic email reminders if their volumeset has not recently been backed up. Email content, timing and policies are configurable.
+
+=item *
+
+BackupAFS is Open Source software hosted by SourceForge.
+
+=back
+
+=head2 Backup basics
+
+=over 4
+
+=item Full Backup
+
+A full backup is a complete record of an object (file, volume, volumeset, etc). BackupAFS operates on B<volume sets>, which are collections of one or more volumes with common characteristics (generally the same location and/or names that match specified patterns). BackupAFS can be configured to do a full backup at a regular interval (typically monthly). BackupAFS can be configured to keep a certain number of full backups. Exponential expiry is also supported, allowing full backups with various vintages to be kept (for example, a specified number of most recent monthly fulls, plus a specified number of older fulls that are 2, 4, 8, or 16 months apart).
+
+=item Incremental Backup
+
+An incremental backup is a record of changes to one or more objects (files, volumes, volumeset, etc.) that have changed since the last successful full or lower-leveled incremental backup. BackupAFS operates on B<volume sets>, which are collections of one or more volumes with common characteristics (generally the same location and/or names that match specified patterns). Multi-level incrementals are supported. A full backup has level 0. A new incremental of level N will backup all files in a given volume that have changed since the most recent backup of a lower level. $Conf{IncrLevels} is used to specify the level of each successive incremental. The default value is all level 1, which makes the behavior the same as earlier versions of BackupAFS: each incremental will back up all the files that changed since the last full (level 0).
+
+Immediately before a "vos dump" is performed, the volume in question has a "vos backup" performed on it.
+
+Vos backups are performed using the "vos dump -time <dump from time>" syntax. Discussion on the OpenAFS mailing list confirmed that the -time argument catches even new files with old timestamps (created via touch, tar, etc.) because during vos dumps, AFS decides whether a file has been changed based on the vnode:uniquifier data.
+
+BackupAFS can also be configured to keep a certain number of incremental backups, and to keep a smaller number of very old incremental backups. If multi-level incrementals are specified then it is likely that more incrementals will be kept than specified, since lower-level incrementals (and the full backup) are needed to reconstruct a higher-level incremental.
+
+BackupAFS "fills-in" incremental backups when browsing or restoring, based on the levels of each backup, giving every backup a "full" appearance. This makes browsing and restoring backups much easier: you can restore from any one backup independent of whether it was an incremental or full. BackupAFS will construct the dependency list and restore all parent dumps necessary to reconstruct the original volume.
+
+=item Backup Policy
+
+Based on your site's requirements you need to decide what your backup policy is. BackupAFS is not designed to provide exact re-imaging of an AFS cell. See L<Limitations|limitations> for more information. However, an exact restoration of individual or multiple volumes may be made.
+
+BackupAFS saves backups onto disk. Because of compression you can economically keep several weeks or months of old backups.
+
+At some sites the disk-based backup will be adequate without a secondary tape backup. This system is robust to any single failure: if an AFS fileserver fails or loses volumes, the BackupAFS server can be used to restore those volumes. If the BackupAFS server disk fails, BackupAFS can be restarted on a fresh file system, and create new backups from the volumes still in AFS. The chance of the server disk failing can be made very small by spending more money on increasingly better RAID systems. However, there is still the risk of catastrophic events like fires or earthquakes that can destroy both the BackupAFS server and the fileservers it is backing up if they are physically nearby. Physically separating the BackupAFS server from the AFS fileservers is recommended.
+
+Some sites might choose to do periodic backups to tape or cd/dvd in parallel with BackupAFS. Another alternative would be to do tape backups of the BackupAFS data partition (or only when BackupAFS performs a full dumps, etc.).
+
+Other users have reported success with removable disks to rotate the BackupAFS data drives, or using rsync to mirror the BackupAFS data pool offsite. The truely paranoid might run multiple BackupAFS instances in parallel on separate hardware, at separate locations, or run BackupAFS in parallel with another AFS-aware backup product.
+
+=back
+
+=head2 Resources
+
+=over 4
+
+=item BackupAFS home page
+
+The BackupAFS Open Source project is hosted on SourceForge.  The
+home page can be found at:
+
+    http://backupafs.sourceforge.net
+
+This page has links to the current documentation, the SourceForge
+project page and general information.
+
+=item SourceForge project
+
+The SourceForge project page is at:
+
+    http://sourceforge.net/projects/backupafs
+
+This page has links to the current releases of BackupAFS.
+
+=item Other Programs of Interest
+
+If you just want to mirror linux or unix files or directories that happen to reside in AFS to a remote server you could use rsync, L<http://rsync.samba.org>. You may wish to use rsync to mirror the BackupAFS data store. The BackupAFS data store could also be replicated across the network in realtime with DRBD (for that matter, so could your AFS servers).
+
+Two popular open source packages that do tape backup are Amanda (L<http://www.amanda.org>) and Bacula (L<http://www.bacula.org>). There are AFS extensions for Amanda (see Amanda-afs below), therefore it might be used as a complete solution. Further either might be used as a back end to BackupAFS to dump the BackupAFS server data to tape.
+
+AFS native backup (butc) - designed to write directly to tapes, but can be configured to write to files directly. Notoriously difficult to configure, manage, and interface with tape libraries and autochangers. When dumping to files, one file represents an entire volumeset (this is different from "vos" dumps, where one file represents one volume).
+
+AFS "vos dump" & "vos restore" - basic AFS commands to dump and restore AFS volumes to and from files. This is what BackupPC4AFS does internally, and many sites use "homegrown" scripts which rely on vos internally.
+
+Amanda-afs - AFS extensions to allow Amanda to backup and restore AFS files. Appears to do this via a vos <-> tar translator.
+
+TSM - Commercial software. There is an extension to IBM's Tivoli Storage Manager to allow it to backup AFS volumes. Apparently no longer marketed or supported.
+
+Veritas NetBackup AFS module - Commercial software. Also apparently no longer supported. Anyone with additional information, please feel free to forward it.
+
+TiBS, Teradactyl's "True incremental Backup System" - Closed-source, commercial software. Actively marketed and supported. While actual prices are not reported on Teradactyl's website, prices charged sites seem to vary somewhat but are usually quite expensive. Teradactyl is an active OpenAFS supporter and several contributors to the OpenAFS lists have admitted to using it.
+
+Others?
+
+BackupAFS provides many additional features, such as compressed storage, easy configuration via CGI, etc. But these other programs provide simple, effective and fast solutions and are definitely worthy of consideration, dependent on your needs and budget.
+
+=back
+
+=head2 Road map
+
+
+The primary developer has some ideas for new features for future releases of BackupAFS. Comments and suggestions are welcome.
+
+=head2 You can help
+
+BackupAFS is free. I work on BackupAFS because it satisfies the requirements of my use, because I enjoy doing it, and because I like to contribute to the open source community.
+
+My main compensation for continuing to work on BackupAFS is knowing that more and more people find it useful. So feedback is certainly appreciated, both positive and negative.
+
+Beyond being a satisfied user and telling other people about it, everyone
+is encouraged to add links to L<http://backupafs.sourceforge.net>
+(I'll see them via Google) or otherwise publicize BackupAFS.  Unlike
+the commercial products in this space, I have a zero budget (in both
+time and money) for marketing, PR and advertising, so it's up to
+all of you!  Feel free to vote for BackupAFS at
+L<http://freshmeat.net/projects/backupafs>.
+
+Also, everyone is encouraged to contribute patches, bug reports,
+feature and design suggestions, new code, Wiki additions (you can
+do those directly) and documentation corrections or improvements.
+Answering questions on the mailing list is a big help too.
+
+=head1 Installing BackupAFS
+
+=head2 Requirements
+
+BackupAFS requires:
+
+=over 4
+
+=item *
+
+Linux (although Solaris, MacOS X, or other unix-based operating systems can likely be made to work with very little effort).
+
+=item *
+
+A substantial amount of free disk space (see the next section for what that means). The CPU and disk performance on this server will determine how many simultaneous backups you can run. You should be able to run 4-8 simultaneous backups on a moderately configured server.
+
+Several sites have reported significantly better performance using xfs compared to ext3 for the BackupAFS data filesystem. It is also recommended you consider either an LVM or RAID setup (either in HW or SW; eg: 3Ware RAID10, RAID5, or RAID6) so that you can expand the file system as necessary.
+
+=item *
+
+The standard OpenAFS client, including the 'vos' binary. Use the version provided by your OS, or get it from L<http://www.openafs.org>.
+
+=item *
+
+Perl version 5.8.0 or later.  If you don't have perl, please
+see L<http://www.cpan.org>.
+
+=item *
+
+Perl modules Compress::Zlib (optional) for compressing log files.  Try "perldoc
+Compress::Zlib" to see if you have this
+module.  If not, fetch it from L<http://www.cpan.org> and see the
+instructions below for how to build and install them.
+
+=item *
+
+The gzip or pigz binary (optional) for compressing dumps. B<For multi-core systems, pigz (parallelized gzip algorithm) is strongly suggested>. If your OS lacks these, they can be obtained from L<http://www.gzip.org> and L<http://www.zlib.net/pigz>.
+
+=item *
+
+The Apache web server, see L<http://www.apache.org>, preferably built
+with mod_perl support.
+
+=back
+
+=head2 What type of storage space do I need?
+
+BackupAFS stores its dumps of volumesets on disk. Therefore BackupAFS's data store (__TOPDIR__) should point to a single, large file system (it is ok to use a single symbolic link at the top-level directory (__TOPDIR__) to point the entire data store somewhere else). You can of course use any kind of RAID system or logical volume manager that combines the capacity of multiple disks into a single, larger, file system. Such approaches have the advantage that the file system can be expanded without having to copy it.
+
+Any standard linux or unix file system should work fine. NFS mounted file systems work too. Windows based FAT and NTFS file systems have not been tested, but should work in principle (BackupAFS does not use hard links, but depending some paths may get very long, depending on both site data store location and volume- and volumeset-naming decisions.
+
+=head2 But how much disk space do I REALLY need?
+
+Here's one real example for an environment that is backing up 95 volumesets (3500 total volumes) with compression off. The full AFS cell is ~3.5 TB. Storing two full bi-monthly backups and 60 incremental backups per volumeset is around 7.3TB of raw data.
+
+The same cell, with compression on: backing up 95 volumesets (3500 total volumes). Storing two full bi-monthly backups and 60 incremental backups per volumeset takes only 4.7TB of space (approx. a 36% savings).
+
+Your actual mileage will depend upon the types and compressibility of data you backup. The more compressible the data, the bigger benefit compression will be to you.
+
+=head2 Step 1: Getting BackupAFS
+
+Manually fetching and installing BackupAFS is easy.
+Start by downloading the latest version from
+L<http://backupafs.sourceforge.net>.  Hit the "Code" button,
+then select the "backupafs" or "backupafs-beta" package and
+download the latest version.
+
+=head2 Step 2: Satisfying the Dependencies
+
+Note: most information in this step is only relevant if you build
+and install BackupAFS yourself.  If you use a package provided by a
+distribution, the package management system should take of installing
+any needed dependencies.
+
+First off, there are two perl modules you should install.
+These are all optional, but highly recommended:
+
+=over 4
+
+=item Compress::Zlib
+
+To enable log compression, you will need to install Compress::Zlib
+from L<http://www.cpan.org>.
+You can run "perldoc Compress::Zlib" to see if this module is installed.
+
+=item XML::RSS
+
+To support the (experimental) RSS feature you will need to install XML::RSS, also from
+L<http://www.cpan.org>.  There is not need to install this module if you
+don't plan on using RSS. You can run "perldoc XML::RSS" to see if this
+module is installed.
+
+To build and install these packages you may wish to use the cpan program.
+Alternatively, you can fetch the tar.gz file from L<http://www.cpan.org>
+and then run these commands:
+
+    tar zxvf Compress-Zip-1.26.tar.gz
+    cd Compress-Zip-1.26
+    perl Makefile.PL
+    make
+    make test
+    make install
+
+The same sequence of commands can be used for each module.
+
+=item OpenAFS Client
+
+The BackupAFS server must be an AFS client for your AFS cell. So, if you have not already, you should install and configure the OpenAFS client using the settings for your cell. Many popular linux distributions include a pre-packaged version of the client. If your distribution does not, or if you prefer not to use it, you can download it from L<http://www.openafs.org>.
+
+=item Compression executable
+
+BackupAFS can optionally compress volume dumps using either gzip or pigz for compression. Both applications perform compression using the gzip algorithm; pigz is simply a parallel implementation designed to leverage multiple cores in modern multi-CPU servers. If your distribution does not include the one you choose, you may download Gzip from L<http://www.gzip.org/> or Pigz from L<http://www.zlib.net/pigz/>. B<If you have a multi-processor system, pigz is strongly recommended.>
+
+=back
+
+=head2 Step 3: Installing the BackupAFS software
+
+Now let's move onto BackupAFS itself.  After fetching
+BackupAFS-1.0.0.tar.gz, run these commands as root:
+
+    tar zxf BackupAFS-1.0.0.tar.gz
+    cd BackupAFS-1.0.0
+    perl configure.pl
+
+In the future this release might also have patches available on the
+SourceForge site.  These patch files are text files, with a name of
+the form
+
+    BackupAFS-1.0.0plN.diff
+
+where N is the patch level, eg: pl2 is patch-level 2.  These
+patch files are cumulative: you only need apply the last patch
+file, not all the earlier patch files.  If a patch file is
+available, eg: BackupAFS-1.0.0pl2.diff, you should apply
+the patch after extracting the tar file:
+
+     # fetch BackupAFS-1.0.0.tar.gz
+     # fetch BackupAFS-1.0.0pl2.diff
+     tar zxf BackupAFS-1.0.0.tar.gz
+     cd BackupAFS-1.0.0
+     patch -p0 < ../BackupAFS-1.0.0pl2.diff
+     perl configure.pl
+
+A patch file includes comments that describe that bug fixes
+and changes.  Feel free to review it before you apply the patch.
+
+The configure.pl script also accepts command-line options if you
+wish to run it in a non-interactive manner.  It has self-contained
+documentation for all the command-line options, which you can
+read with perldoc:
+
+    perldoc configure.pl
+
+The configure.pl script by default
+complies with the file system hierarchy (FHS) conventions.  The
+configuration files will be stored in /etc/BackupAFS
+and the log files will be stored in /var/log/BackupAFS.
+
+Note that distributions may choose to use different locations for
+BackupAFS files than these defaults.
+
+If you are upgrading from an earlier version the configure.pl script
+will keep the configuration files and log files in their original
+location.
+
+When you run configure.pl you will be prompted for the full paths
+of various executables, and you will be prompted for the following
+information.
+
+=over 4
+
+=item BackupAFS User
+
+It is best if BackupAFS runs as a special user, eg backupafs, that has
+limited privileges. It is preferred that backupafs belongs to a system
+administrator group so that sys admin members can browse BackupAFS files,
+edit the configuration files and so on. Although configurable, the
+default settings leave group read permission on backup directories, so make
+sure the BackupAFS user's group is chosen restrictively.
+
+On this installation, this is backup.
+
+For security purposes you might choose to configure the BackupAFS
+user with the shell set to /bin/false.  Since you might need to
+run some BackupAFS programs as the BackupAFS user for testing
+purposes, you can use the -s option to su to explicitly run
+a shell, eg:
+
+    su -s /bin/bash backup
+
+Depending upon your configuration you might also need the -l option.
+
+=item Data Directory
+
+You need to decide where to put the data directory, below which
+all the BackupAFS data is stored.  This needs to be a big file system.
+Unless your largest volumes are tiny, it needs to support largefiles (>2GB). You may wish to consider xfs or zfs (if available for your OS).
+
+On this installation, this is __TOPDIR__.
+
+=item Install Directory
+
+You should decide where the BackupAFS scripts, libraries and documentation
+should be installed, eg: __INSTALLDIR__.
+
+On this installation, this is __INSTALLDIR__.
+
+=item CGI bin Directory
+
+You should decide where the BackupAFS CGI script resides.  This will
+usually be below Apache's cgi-bin directory.
+
+It is also possible to use a different directory and use Apache's
+"<Directory>" directive to specifiy that location.  See the Apache
+HTTP Server documentation for additional information.
+
+On this installation, this is /usr/lib/cgi-bin.
+
+=item Apache image Directory
+
+A directory where BackupAFS's images are stored so that Apache can
+serve them.  You should ensure this directory is readable by Apache and
+create a symlink to this directory from the BackupAFS CGI bin Directory.
+
+=item Config and Log Directories
+
+In this installation the configuration and log directories are
+located in the following locations:
+
+    /etc/BackupAFS/config.pl    main config file
+    /etc/BackupAFS/VolumeSet-List file with list and defs of volume sets
+    /etc/BackupAFS/pc/HOST.pl   per-pc config file
+    /var/log/BackupAFS/BackupAFS      log files, pid, status
+
+The configure.pl script doesn't prompt for these locations but
+they can be set for new installations using command-line options.
+
+=back
+
+An example of this step:
+
+    mkdir __INSTALLDIR__-1.0.0
+    cd /tmp
+    cp /path/to/BackupAFS-1.0.0.tar.gz ./
+    tar -zxvpf BackupAFS-1.0.0.tar.gz
+    cd BackupAFS-1.0.0
+    perl configure.pl
+    --> Full path to existing main config.pl []?
+    --> Are these paths correct? [y]? y
+    --> BackupAFS will run on host [backupserver]? backupserver
+    --> BackupAFS should run as user [backupafs]? backup
+    --> Install directory (full path) [__INSTALLDIR__]? __INSTALLDIR__
+    --> Data directory (full path) [__TOPDIR__]? __TOPDIR__
+    --> Compression level [0]? 4
+    --> CGI bin directory (full path) []? /usr/lib/cgi-bin
+    --> Apache image directory (full path) []? /var/www/BackupAFS
+    --> URL for image directory (omit http://host; starts with '/') []? /BackupAFS
+    --> Do you want to continue? [y]?
+
+=head2 Step 4: Setting up config.pl
+
+After running configure.pl, browse through the config file, /etc/BackupAFS/config.pl, and make sure all the default settings are correct. In particular, you will need to configure one or more CGI admin users or groups in order to perform useful tasks via the CGI.
+
+If you're using mod_auth_kerb, make sure that you specify the CgiAdminUsers in a username@KRB5.SOME.DOMAIN.ORG format.
+
+Example:
+
+    grep CgiAdminUsers /etc/BackupAFS/config.pl | grep -v ^#
+    $Conf{CgiAdminUsers} = 'admin@K5REALM.UNIV.EDU';
+
+or:
+
+    $Conf{CgiAdminUsers} = 'admin1@K5REALM.UNIV.EDU,admin2@K5REALM.UNIV.EDU';
+
+=head2 Step 5: Adding your AFS KeyFile
+
+In order to perform vos dump operations without tokens, we need to copy the AFS cell's keyfile to the BackupAFS server. B<This keyfile must be protected>. Only the backupafs user should be able to read it. I<This means that the BackupAFS server should be kept as secure as your AFS fileservers.> This document won't devolve into a security lecture, but suffice it to say you should turn off all unnecessary services and wrap or firewall the remaining services.
+
+Modern Debian/Ubuntu distributions store the KeyFile in the /etc/openafs/server directory. That directory on AFS fileserver machines normally includes other files (ThisCell, CellServDB, UserList, and possibly CellAlias); those files will not harm the BackupAFS server. It is advised to copy the entire /etc/openafs/server directory from an existing fileserver to the BackupAFS server.
+
+If the version of OpenAFS supplied by your operating system (or you, if you manually install) expects the KeyFile in a different location, place the copy in that location instead of /etc/openafs/server.
+
+Example:
+
+    backupserver:~ # mkdir -p /etc/openafs/server
+    backupserver:~ # chmod 700 /etc/openafs/server
+    backupserver:~ # cd /etc/openafs
+    backupserver:/etc/openafs # scp -R root@fileserver1:/etc/openafs/server server/
+    root@fileserver1's password:
+    KeyFile                                       100%   16     0.0KB/s   00:00    
+    ThisCell                                      100%   16     0.0KB/s   00:00    
+    CellServDB                                    100%   16     0.0KB/s   00:00    
+    UserList                                      100%   16     0.0KB/s   00:00    
+    backupserver:/etc/openafs/server # chown -R backupafs:backupafs.
+    backupserver:/etc/openafs/server # chmod 700 KeyFile
+
+
+=head2 Step 6: Setting up the VolumeSet-List file
+
+The file /etc/BackupAFS/VolumeSet-List contains the list and definitions of volumesets to backup.
+BackupAFS reads this file in three cases:
+
+=over 4
+
+=item *
+
+Upon startup.
+
+=item *
+
+When BackupAFS is sent a HUP (-1) signal.  Assuming you installed the
+init.d script, you can also do this with "/etc/init.d/backupafs reload".
+
+=item *
+
+When the modification time of the VolumeSet-List file changes.  BackupAFS
+checks the modification time once during each regular wakeup.
+
+=back
+
+Whenever you change the VolumeSet-List file (to add or remove a volset) you can
+either do a C<kill -HUP I<BackupAFS_pid>> or simply wait until the next regular
+wakeup period.
+
+Each line in the VolumeSet-List file contains multiple fields, separated
+by a colon (:)
+
+=over 4
+
+=item volset (name of the VolumeSet)
+
+This is the definitive name of the volumeset and should be in lower case. The volset name should contain only lowercase alphanumerics. The use of non-alphanumeric characters may be possible (preceded by a backslash), but it is not recommended.
+
+=item user (user name)
+
+This should be the unix login/email name of the user who "owns" or uses
+this volset. This is the user who will be sent email about this
+volset, and this user will have permission to stop/start/browse/restore
+backups for this volset. Leave this blank if no specific person should
+receive email or be allowed to stop/start/browse/restore backups
+for this volset. Administrators will still have full permissions.
+
+=item moreUsers (more user names)
+
+Additional user names, separated by commas and with no white space,
+can be specified.  These users will also have full permission in
+the CGI interface to stop/start/browse/restore backups for this volset.
+These users will not be sent email about this volset.
+
+=item (volume entries 1 - 5)
+
+To paraphrase the OpenAFS Administrator's Guide, "a single volumeset consists of [between one and five] volume entries, each of which specifies which volumes to backup based on their location (file server machine and partition) and volume name." BackupAFS represents the location as EntryI<X>_Servers and EntryI<X>_Partitions. Volume names are specified by EntryI<X>_Volumes, where X is an integer between 1 and 5, inclusive.
+
+The full list of fields which represent volume entries is
+
+    Entry1_Servers, Entry1_Partitions, Entry1_Partitions
+    Entry2_Servers, Entry2_Partitions, Entry2_Partitions
+    Entry3_Servers, Entry3_Partitions, Entry3_Partitions
+    Entry4_Servers, Entry4_Partitions, Entry4_Partitions
+    Entry5_Servers, Entry5_Partitions, Entry5_Partitions 
+
+All of these fields are actually regular expressions. Those of you familar with regular expressions will recall that the period "." represents any valid character, therefore literal periods in hostnames must be escaped (preceded by a backslash "\"). B<Because it is normal to dump only AFS backup volumes (that is the normal volume name with a .backup suffix), it is normal to include \.backup in the regular expression for EntryI<X>_Volumes.> BackupAFS will create the .backup volumes if they do not exist (or re-create them if they do), immediately prior to dumping each volume.
+
+Examples of valid values of Entry1_Servers include: 
+
+    fileserver1\.mydomain\.com
+    london-fs.*\.mydomain\.com
+    .*-fs1\.mydomain\.com
+    .*
+
+Examples of valid values of EntryI<X>_Partitions include:
+
+    /vicepa
+    /vicepa.*
+    .*
+
+Examples of valid values of EntryI<X>_Volumes include:
+
+    .*\.backup
+    prj\.panic\.backup
+    prj\.panic\..*\.backup
+    user\.a.*\.backup
+
+Entry1_Servers, Entry1_Partitions, and Entry1_Volumes together define one group of volumes which will be backed up in the volumeset. Each volumeset may have up to 5 volume entries comprising it.
+
+Combining servers, partitions, and volumes usefully in combinations depends on the desired result and the characteristics of the volumes you wish to backup.
+
+Some examples from the OpenAFS Administrator's Guide: 
+
+=over 4
+
+=item *
+
+To backup all volumes in the VLDB, use the regular expression .* in all three parts of the volume entry (Entry1_Servers, Entry1_Partitions, Entry1_Volumes) (Example "myvolset:::.*:.*:.*\.backup")
+
+=item *
+
+Every volume on a specific fileserver machine, specify its fully qualified hostname in the "EntryI<X>_Servers" field and use the regular expression .* for the EntryI<X>_Partitions and EntryI<X>_Volumes fields. (Example "myvolset:jondoe:janedoe:fileserver1\.mydomain\.com:.*:.*")
+
+=item *
+
+All volumes that reside on a partition with the same name on various file server machines, specify the complete partition name in the EntryI<X>_Partitions field and use the regular expression .* for the EntryI<X>_Servers and EntryI<X>_Volumes fields (Example "myvolset:jondoe:janedoe:.*:/vicepa:.*")
+
+=item *
+
+Every volume with a common string in its name, use the regular expression .* for the EntryI<X>_Servers and EntryI<X>_Partitions fields, and provide a combination of alphanumeric characters and metacharacters in the EntryI<X>_Volumes field (Example "myvolset:jondoe:janedoe:.*:.*:user.*\.backup")
+
+=item *
+
+All volumes on one partition, specify the fileserver machine's fully qualified hostname as the EntryI<X>_Servers field, the full partition name as the EntryI<X>_Partitions field, and the regular expression .* for the EntryI<X>_Volumes field. (Example "myvolset:jondoe:janedoe:fileserver1\.mydomain\.com:/vicepa:.*\.backup")
+
+=item *
+
+A single volume, specify its complete name in the EntryI<X>_Volumes field. To bypass the potentiall time- consuming search through the VLDB for matching entries, you may specify the actual fileserver machine and partition name in the EntryI<X>_Servers and EntryI<X>_Partitions fields, respectively. However if it is possible that you will need to move the volume in the future, it is best to use the regular expression .* for the server and partition names. (Example "myvolset:jondoe:janedow:.*:.*:user\.bigwig\.backup") 
+
+=back
+
+Because all of the volumes within a single volumeset are dumped to disk at the same time (daily, weekly, monthly, etc) and in the same manner (full or incremental), a volumeset generally includes volumes with similar contents or characteristics (as indicated by similar names). This grouping by name is generally more useful than one that treats volumes by location, unless your cell includes geographically-separated fileservers. The most common, most useful value for EntryI<X>_Servers and EntryI<X>_Partitions is the regular expression .* (period followed by an asterisk).
+
+It is generally advisable to include a limited number of volumes in a volume entry. Dumps of a volumeset that includes a large number of volumes can take a long time to complete.
+
+It is generally advisable to strive for staggered full backups. That is if you have 14 volumesets and you intend to perform full backups every 2 weeks, you stagger your backup rotation so that each volumeset's full takes place on a different night. If you do not do this, or if one volumeset is disproportionately large compared to the others, your BackupAFS server will work hard during that full and be mostly-idle the rest of the time.
+
+=back
+
+The first non-comment line of the VolumeSet-List file is special: it contains
+the names of the fields and should not be edited.
+
+Here's a simple example of a VolumeSet-List file:
+
+    volset:user:moreUsers:Entry1_Servers:Entry1_Partitions:Entry1_Volumes:Entry2_Servers:Entry2_Partitions:Entry2_Volumes:Entry3_Servers:Entry3_Partitions:Entry3_Volumes:Entry4_Servers:Entry4_Partitions:Entry4_Volumes:Entry5_Servers:Entry5_Partitions:Entry5_Volumes
+    class_all:jondoe::.*:.*:class\..*\.backup::::::::::::
+    user_a:::.*:.*:user\.a.*\.backup::::::::::::
+    user_z:::.*:.*:user\.z.*\.backup::::::::::::
+
+B<The easiest method of editing volumesets is to use the CGI, once configured.>
+
+All fields except volset, Entry1_Servers, Entry1_Partitions, and Entry1_Volumes may be blank.
+
+
+=head2 Step 7: CGI interface
+
+The CGI interface script, C<BackupAFS_Admin>, is a powerful and flexible
+way to see and control what BackupAFS is doing.  It is written for an
+Apache server.  If you don't have Apache, see L<http://www.apache.org>.
+
+There are two options for setting up the CGI interface: standard
+mode and using mod_perl.  Mod_perl provides much higher performance
+(around 15x) and is the best choice if your Apache was built with
+mod_perl support.  To see if your apache was built with mod_perl
+run this command:
+
+    httpd -l | egrep mod_perl
+
+If this prints mod_perl.c then your Apache supports mod_perl.
+
+Note: on some distributions (like Debian) the command is not ``httpd'',
+but ``apache'' or ``apache2''. Those distributions will generally also
+use ``apache'' for the Apache user account and configuration files.
+
+Using mod_perl with BackupAFS_Admin requires a dedicated Apache
+to be run as the BackupAFS user (backup).  This is
+because BackupAFS_Admin needs permission to access various files
+in BackupAFS's data directories.  In contrast, the standard
+installation (without mod_perl) solves this problem by having
+BackupAFS_Admin installed as setuid to the BackupAFS user, so that
+BackupAFS_Admin runs as the BackupAFS user.
+
+Here are some specifics for each setup:
+
+=over 4
+
+=item Standard Setup
+
+The CGI interface should have been installed by the configure.pl script
+in /usr/lib/cgi-bin/BackupAFS_Admin.  BackupAFS_Admin should have been installed
+as setuid to the BackupAFS user (backup), in addition to user
+and group execute permission.
+
+You should be very careful about permissions on BackupAFS_Admin and
+the directory /usr/lib/cgi-bin: it is important that normal users cannot
+directly execute or change BackupAFS_Admin, otherwise they can access
+backup files for any volset. You might need to change the group ownership
+of BackupAFS_Admin to a group that Apache belongs to so that Apache
+can execute it (don't add "other" execute permission!).
+The permissions should look like this:
+
+    ls -l /usr/lib/cgi-bin/BackupAFS_Admin
+    -swxr-x---    1 backup   web      82406 Jun 17 22:58 /usr/lib/cgi-bin/BackupAFS_Admin
+
+The setuid script won't work unless perl on your machine was installed
+with setuid emulation. This is likely the problem if you get an error
+saying such as "Wrong user: my userid is 25, instead of 150", meaning
+the script is running as the httpd user, not the BackupAFS user.
+This is because setuid scripts are disabled by the kernel in most
+flavors of unix and linux.
+
+To see if your perl has setuid emulation, see if there is a program
+called sperl5.8.0 (or sperl5.8.2 etc, based on your perl version)
+in the place where perl is installed. If you can't find this program,
+then you have three options: rebuild and reinstall perl with the setuid
+emulation turned on (answer "y" to the question "Do you want to do
+setuid/setgid emulation?" when you run perl's configure script), 
+switch to the mod_perl alternative for the CGI script (which doesn't
+need setuid to work), or run apache as the BackupAFS user (which will
+not require setuid to work)..
+
+=item Mod_perl Setup
+
+The advantage of the mod_perl setup is that no setuid script is needed,
+and there is a huge performance advantage.  Not only does all the perl
+code need to be parsed just once, the config.pl and VolumeSet-List files, plus
+the connection to the BackupAFS server are cached between requests.  The
+typical speedup is around 15 times.
+
+To use mod_perl you need to run Apache as user backup.
+If you need to run multiple Apache's for different services then
+you need to create multiple top-level Apache directories, each
+with their own config file.  You can make copies of /etc/init.d/httpd
+and use the -d option to httpd to point each http to a different
+top-level directory.  Or you can use the -f option to explicitly
+point to the config file.  Multiple Apache's will run on different
+Ports (eg: 80 is standard, 8080 is a typical alternative port accessed
+via http://yourhost.com:8080).
+
+Inside BackupAFS's Apache http.conf file you should check the
+settings for ServerRoot, DocumentRoot, User, Group, and Port.  See 
+L<http://httpd.apache.org/docs/server-wide.html> for more details.
+
+For mod_perl, BackupAFS_Admin should not have setuid permission, so
+you should turn it off:
+
+    chmod u-s /usr/lib/cgi-bin/BackupAFS_Admin
+
+To tell Apache to use mod_perl to execute BackupAFS_Admin, add this
+to Apache's 1.x httpd.conf file:
+
+    <IfModule mod_perl.c>
+	PerlModule Apache::Registry
+	PerlTaintCheck On
+	<Location /cgi-bin/BackupAFS/BackupAFS_Admin>   # <--- change path as needed
+	   SetHandler perl-script
+	   PerlHandler Apache::Registry
+	   Options ExecCGI
+	   PerlSendHeader On
+	</Location>
+    </IfModule>
+
+Apache 2.0.44 with Perl 5.8.0 on RedHat 7.1, Don Silvia reports that
+this works (with tweaks from Michael Tuzi):
+
+    LoadModule perl_module modules/mod_perl.so
+    PerlModule Apache2
+
+    <Directory /path/to/cgi/>
+	SetHandler perl-script
+	PerlResponseHandler ModPerl::Registry
+	PerlOptions +ParseHeaders
+	Options +ExecCGI
+	Order deny,allow
+	Deny from all
+	Allow from 192.168.0  
+	AuthName "Backup Admin"
+	AuthType Basic
+	AuthUserFile /path/to/user_file
+	Require valid-user
+    </Directory>
+
+There are other optimizations and options with mod_perl.  For
+example, you can tell mod_perl to preload various perl modules,
+which saves memory compared to loading separate copies in every
+Apache process after they are forked.  See Stas's definitive
+mod_perl guide at L<http://perl.apache.org/guide>.
+
+=back
+
+BackupAFS_Admin requires that users are authenticated by Apache.
+Specifically, it expects that Apache sets the REMOTE_USER environment
+variable when it runs.  There are several ways to do this.  One way
+is to create a .htaccess file in the cgi-bin directory that looks like:
+
+    AuthGroupFile /etc/httpd/conf/group    # <--- change path as needed
+    AuthUserFile /etc/http/conf/passwd     # <--- change path as needed
+    AuthType basic
+    AuthName "access"
+    require valid-user
+
+You will also need "AllowOverride Indexes AuthConfig" in the Apache
+httpd.conf file to enable the .htaccess file. Alternatively, everything
+can go in the Apache httpd.conf file inside a Location directive. The
+list of users and password file above can be extracted from the NIS
+passwd file.
+
+One alternative is to use LDAP.  In Apache's http.conf add these lines:
+
+    LoadModule auth_ldap_module   modules/auth_ldap.so
+    AddModule auth_ldap.c
+
+    # cgi-bin - auth via LDAP (for BackupAFS)
+    <Location /cgi-binBackupAFS/BackupAFS_Admin>    # <--- change path as needed
+      AuthType Basic
+      AuthName "BackupAFS login"
+      # replace MYDOMAIN, PORT, ORG and CO as needed
+      AuthLDAPURL ldap://ldap.MYDOMAIN.com:PORT/o=ORG,c=CO?uid?sub?(objectClass=*)
+      require valid-user
+    </Location>
+
+If you want to disable the user authentication you can set
+$Conf{CgiAdminUsers} to '*', which allows any user to have
+full access to all VolumeSets and backups.  In this case the REMOTE_USER
+environment variable does not have to be set by Apache.
+
+Alternatively, you can force a particular user name by getting Apache
+to set REMOTE_USER, eg, to hardcode the user to www you could add
+this to Apache's httpd.conf:
+
+    <Location /cgi-bin/BackupAFS/BackupAFS_Admin>   # <--- change path as needed
+        Setenv REMOTE_USER www
+    </Location>
+
+Finally, you should also edit the config.pl file and adjust, as necessary,
+the CGI-specific settings.  They're near the end of the config file. In
+particular, you should specify which users or groups have administrator
+(privileged) access: see the config settings $Conf{CgiAdminUserGroup}
+and $Conf{CgiAdminUsers}.  Also, the configure.pl script placed various
+images into $Conf{CgiImageDir} that BackupAFS_Admin needs to serve
+up.  You should make sure that $Conf{CgiImageDirURL} is the correct
+URL for the image directory.
+
+See the section L<Fixing installation problems|fixing installation problems> for suggestions on debugging the Apache authentication setup.
+
+=head2 Step 8: Running BackupAFS
+
+The installation contains an init.d backupafs script that can be copied
+to /etc/init.d so that BackupAFS can auto-start on boot.
+See init.d/README for further instructions.
+
+BackupAFS should be ready to start.  If you installed the init.d script,
+then you should be able to run BackupAFS with:
+
+    /etc/init.d/backupafs start
+
+(This script can also be invoked with "stop" to stop BackupAFS and "reload"
+to tell BackupAFS to reload config.pl and the VolumeSet-List file.)
+
+Otherwise, just run
+
+     __INSTALLDIR__/bin/BackupAFS -d
+
+as user backup.  The -d option tells BackupAFS to run as a daemon
+(ie: it does an additional fork).
+
+Any immediate errors will be printed to stderr and BackupAFS will quit.
+Otherwise, look in /var/log/BackupAFS/LOG and verify that BackupAFS reports
+it has started and all is ok.
+
+=head2 Step 9: Talking to BackupAFS
+
+You should verify that BackupAFS is running by using C<BackupAFS_serverMesg>.
+This sends a message to BackupAFS via the unix (or TCP) socket and prints
+the response.  Like all BackupAFS programs, C<BackupAFS_serverMesg>
+should be run as the BackupAFS user (backup), so you
+should
+
+    su backup
+
+before running C<BackupAFS_serverMesg>.  If the BackupAFS user is
+configured with /bin/false as the shell, you can use the -s
+option to su to explicitly run a shell, eg:
+
+    su -s /bin/bash backup
+
+Depending upon your configuration you might also need
+the -l option.
+
+You can request status information and start and stop backups using this
+interface. This socket interface is mainly provided for the CGI interface
+(and some of the BackupAFS sub-programs use it too).  But right now we just
+want to make sure BackupAFS is happy.  Each of these commands should
+produce some status output:
+
+    __INSTALLDIR__/bin/BackupAFS_serverMesg status info
+    __INSTALLDIR__/bin/BackupAFS_serverMesg status jobs
+    __INSTALLDIR__/bin/BackupAFS_serverMesg status volsets
+
+The output should be some hashes printed with Data::Dumper.  If it
+looks cryptic and confusing, and doesn't look like an error message,
+then all is ok.
+
+The jobs status should initially show just C<BackupAFS_trashClean>.
+The volsets status should produce a list of every VolumeSet you have listed
+in /etc/BackupAFS/VolumeSet-List as part of a big cryptic output line.
+
+You can also request that all volsets be queued:
+
+    __INSTALLDIR__/bin/BackupAFS_serverMesg backup all
+
+At this point you should make sure the CGI interface works since
+it will be much easier to see what is going on.  That's our
+next subject.
+
+=head2 Step 10: Checking email delivery
+
+The script C<BackupAFS_sendEmail> sends status and error emails to
+the administrator and users.  It is usually run each night
+by C<BackupAFS_nightly>.
+
+To verify that it can run sendmail and deliver email correctly
+you should ask it to send a test email to you:
+
+    su backup
+    __INSTALLDIR__/bin/BackupAFS_sendEmail -u MYNAME@MYDOMAIN.COM
+
+C<BackupAFS_sendEmail> also takes a -c option that checks if BackupAFS
+is running, and it sends an email to $Conf{EMailAdminUserName}
+if it is not.  That can be used as a keep-alive check by adding
+
+    __INSTALLDIR__/bin/BackupAFS_sendEmail -c
+
+to backup's cron.
+
+The -t option to C<BackupAFS_sendEmail> causes it to print the email
+message instead of invoking sendmail to deliver the message.
+
+
+=head2 Other installation topics
+
+=over 4
+
+=item Removing a VolumeSet
+
+If there is a volset that no longer needs to be backed up (eg: some
+volumes are renamed or deleted) you have two choices.  First, you can keep the backups accessible
+and browsable, but disable all new backups.  Alternatively, you can
+completely remove the VolumeSet and all its backups.
+
+To disable backups for a volset $Conf{BackupsDisable} can be
+set to two different values in that VolumeSet's per-volset config.pl file:
+
+=over 4
+
+=item 1
+
+Don't do any regular backups on this volset.  Manually
+requested backups (via the CGI interface) will still occur.
+
+=item 2
+
+Don't do any backups on this volset.  Manually requested
+backups (via the CGI interface) will be ignored.
+
+=back
+
+=back
+
+This will still allow the volset's old backups to be browsable
+and restorable.
+
+To completely remove a VolumeSet and all its backups, you should remove its
+entry in the conf/VolumeSet-List file, and then delete the __TOPDIR__/volsets/I<$volset>
+directory.  Whenever you change the VolumeSet-List file, you should send
+BackupAFS a HUP (-1) signal so that it re-reads the VolumeSet-List file.
+If you don't do this, BackupAFS will automatically re-read the
+VolumeSet-List file at the next regular wakeup.
+
+=head2 Fixing installation problems
+
+Please see the Wiki at L<http://backupafs.wiki.sourceforge.net> for
+debugging suggestions.  If you find a solution to your problem that
+could help other users please add it to the Wiki!
+
+=head1 Restore functions
+
+By selecting a volumeset in the CGI interface, a list of all the backups for that volset will be displayed. By selecting the backup number you can navigate the volumes tree for that volumeset.
+
+BackupAFS's CGI interface automatically displays a I<merged> or I<filled> view when browsing backups. This means that viewing incremental backups shows files from all other backups (full and other incrementals) on which the backup depends, Therefore, there is no need to do multiple restores from the incremental and full backups: BackupAFS does all the hard work for you. You simply select the files and directories you want from the correct backup vintage in one step.
+
+=head2 Browser Download
+
+You may download a single backup file at any time simply by selecting it. Your browser should prompt you with the file name and ask you whether to open the file or save it to disk (you will wish to save it, "gunzip" and "vos restore" it).
+
+=head2 Direct Restore
+
+Alternatively, you can select one or more files or directories in the currently selected directory and select "Restore selected files". (If you need to restore selected files and directories from several different parent directories you will need to do that in multiple steps.)
+
+If you select all the files in a directory, BackupAFS will replace the list of files with the parent directory. You will be presented with a screen that explains the restore process.
+
+With this method the selected files and directories are restored directly back into AFS, by default with a similar volumename (".r" is appended unless you change it). You must change the default values for the AFS fileserver and partition to valid values for your AFS cell. You may wish to change the default extension, or leave it as-is. B<If you remove the extension totally, leaving it blank, any existing volume with the same name will be overwritten, so use caution.>
+
+Once you select "Start Restore" you will be prompted one last time with a summary of the exact source and target volume(s) before you commit. When you give the final go ahead the restore operation will be queued like a normal backup job, meaning that it will be deferred if there is a backup currently running for that volumeset. When the restore job is run, a "vos restore" operation is used to actually restore the volume(s). There is currently no option to cancel a restore that has been started.
+
+A record of the restore request, including the result and list of volumes, is kept. It can be browsed from the VolumeSet's home page. $Conf{RestoreInfoKeepCnt} specifies how many old restore status files to keep.
+
+Note that for direct restore to work, the $Conf{XferMethod} must be able to write to the destination. Because the only XferMethod available is vos, this means that "vos restore" with the "-localauth" option must succeed. This requires that the AFS cell's KeyFile be present on the BackupAFS server's disk. This creates additional security risks, as mentioned in the installation portion of this document. 
+
+
+=head1 Other CGI Functions
+
+=head2 Configuration and Host Editor
+
+The CGI interface has a complete configuration and VolumeSet editor.
+Only the administrator can edit the main configuration settings
+and VolumeSets.  The edit links are in the left navigation bar.
+
+When changes are made to any parameter a "Save" button appears
+at the top of the page.  If you are editing a text box you will
+need to click outside of the text box to make the Save button
+appear.  If you don't select Save then the changes won't be saved.
+
+The volset-specific configuration can be edited from the VolumeSet Summary
+page using the link in the left navigation bar.
+The administrator can edit any of the volset-specific
+configuration settings.
+
+When editing the volset-specific configuration, each parameter has
+an "override" setting that denotes the value is volset-specific,
+meaning that it overrides the setting in the main configuration.
+If you unselect "override" then the setting is removed from
+the volset-specific configuration, and the main configuration
+file is displayed.
+
+User's can edit their volset-specific configuration if enabled
+via $Conf{CgiUserConfigEditEnable}.  The specific subset
+of configuration settings that a user can edit is specified
+with $Conf{CgiUserConfigEdit}.  It is recommended to make this
+list short as possible (you probably don't want your users saving
+hundreds of full backups) and B<it is essential that they can't edit any
+of the Cmd configuration settings, otherwise they can specify
+an arbitrary command that will be executed as the BackupAFS
+user!>
+
+=head2 RSS
+
+BackupAFS supports a very basic RSS feed.  Provided you have the
+XML::RSS perl module installed, a URL similar to this will
+provide RSS information:
+
+    http://localhost/cgi-bin/BackupAFS/BackupAFS_Admin?action=rss
+
+This feature is experimental.  The information included will
+probably change.
+
+=head1 BackupAFS Design
+
+=head2 Some design issues
+
+=over 4
+
+=item Compression
+
+BackupAFS supports compression. It uses the deflate and inflate methods in the Compress::Zlib module, which is based on the zlib compression library (see L<http://www.gzip.org/zlib/>) for log files and the gzip (see L<http://www.gzip.org/>) or pigz (see L<http://www.zlib.net/pigz/>) executable to compress volume dump files. B<If you have a multi-processor system, pigz is strongly recommended.>
+
+The $Conf{CompressLevel} setting specifies the compression level to use. Zero (0) means no compression. Compression levels can be from 1 (least cpu time, slightly worse compression) to 9 (most cpu time, slightly better compression). The recommended value is 3 or 4. Changing it to 5, for example, will take maybe 20% more cpu time and will get another 2-3% additional compression. Diminishing returns set in above 5. See the gzip documentation for more information about compression levels.
+
+Using compression can yield a 35% or more overall saving in backup storage.
+
+=back
+
+=head2 BackupAFS operation
+
+BackupAFS reads the configuration information from
+/etc/BackupAFS/config.pl. It then runs and manages all the backup
+activity. It maintains queues of pending backup requests, user backup
+requests and administrative commands. Based on the configuration various
+requests will be executed simultaneously.
+
+As specified by $Conf{WakeupSchedule}, BackupAFS wakes up periodically
+to queue backups on all the VolumeSets.  This is a four step process:
+
+=over 4
+
+=item 1
+
+For each VolumeSet backup requests are queued on the background command queue.
+
+=item 2
+
+For each VolumeSet, BackupAFS_dump is forked. Several of these may be run in
+parallel, based on the configuration. The file __TOPDIR__/volsets/I<VolumeSet Name>/backups
+is read to decide whether a full or incremental backup needs to be run. If no backup is scheduled, then BackupAFS_dump exits.
+
+The backup is done using the specified XferMethod. The only XferMethod available in BackupAFS is vos. BackupAFS_dump uses BackupAFS_getVols to construct a list of volumes for the given VolumeSet. It does this by first reading the list of volume entries for the given VolumeSet. Then, by querying the AFS dbservers for a list of all fileservers, querying each fileserver for a list of partitions, and querying the VLDB for a list of volumes on each matching server/partition, each volume matching the criteria is returned. Then BackupAFS_vosWrapper is spawned for each volume. Depending on the type of dump, it determines whether a backup is necessary, and if so, performs the actual "vos dump" with the correct arguments.
+
+The volume dump files are stored in __TOPDIR__/volsets/I<VolumeSet Name>/new. The XferMethod output is stored into __TOPDIR__/volsets/<VolumeSet Name>/XferLOG.
+
+When the entire list of matching volumes has been processed, the forked BackupAFS_dump exits.
+
+=item 3
+
+For each complete, good, backup, BackupAFS_compress is run. To avoid excessive resource contention, only a single BackupAFS_compress program runs at a time and the rest are queued.
+
+BackupAFS_compress reads the NewFileList written by BackupAFS_dump and if compression has been requested, it spawns a gzip or pigz process to compress the sequentially for each file. If both gzip and pigz executables are available, it will use pigz. Pigz defaults to a number of threads equal to the number of cores available on the BackupAFS system. This can be overridden by specifying or changing the value of $Conf{PigzThreads}. Overriding this value allows the admin to fine-tune the CPU and IO usage of pigz.
+
+The CGI interface knows how to merge each incremental backups with all lower-level dumps on which it depends, giving the incremental backups a complete appearance. 
+
+=item 4
+
+BackupAFS_trashClean is always run in the background to remove any
+expired backups. Every 5 minutes it wakes up and removes all the files
+in __TOPDIR__/trash.
+
+Also, once each night, BackupAFS_nightly is run to complete some
+additional administrative tasks, such as aging of log files. To avoid race conditions, BackupAFS_nightly is only run when there are no BackupAFS_compress processes running. When BackupAFS_nightly is run no new BackupAFS_compress jobs are started.
+
+=back
+
+BackupAFS also listens for TCP connections on $Conf{ServerPort}, which
+is used by the CGI script BackupAFS_Admin for status reporting and
+user-initiated backup or backup cancel requests.
+
+=head2 Storage layout
+
+BackupAFS resides in several directories:
+
+=over 4
+
+=item __INSTALLDIR__
+
+Perl scripts comprising BackupAFS reside in __INSTALLDIR__/bin,
+libraries are in __INSTALLDIR__/lib and documentation
+is in __INSTALLDIR__/doc.
+
+=item /usr/lib/cgi-bin
+
+The CGI script BackupAFS_Admin resides in this cgi binary directory.
+
+=item /etc/BackupAFS
+
+All the configuration information resides below /etc/BackupAFS.
+This directory contains:
+
+The directory /etc/BackupAFS contains:
+
+=over 4
+
+=item config.pl
+
+Configuration file. See L<Configuration file|configuration file>
+below for more details.
+
+=item VolumeSet-List
+
+Text file, which lists and defines all the VolumeSets to backup.
+
+=item volsets
+
+The directory /etc/BackupAFS/volsets contains per-volumeset configuration files
+that override settings in the main configuration file.  Each file
+is named /etc/BackupAFS/volset/VOLSET.pl, where VOLSET is the name of the VolumeSet.
+
+=back
+
+=item /var/log/BackupAFS
+
+The directory /var/log/BackupAFS (__TOPDIR__/log on pre-FHS versions
+of BackupAFS) contains:
+
+=over 4
+
+=item LOG
+
+Current (today's) log file output from BackupAFS.
+
+=item LOG.0 or LOG.0.z
+
+Yesterday's log file output.  Log files are aged daily and compressed
+(if compression is enabled), and old LOG files are deleted.
+
+=item BackupAFS.pid
+
+Contains BackupAFS's process id.
+
+=item status.pl
+
+A summary of BackupAFS's status written periodically by BackupAFS so
+that certain state information can be maintained if BackupAFS is
+restarted.  Should not be edited.
+
+=item UserEmailInfo.pl
+
+A summary of what email was last sent to each user, and when the
+last email was sent.  Should not be edited.
+
+=back
+
+=item __TOPDIR__
+
+All of BackupAFS's data (each VolumeSet's "vos dump" files, logs, backups files)
+is stored below this directory.
+
+Below __TOPDIR__ are several directories:
+
+=over 4
+
+=item __TOPDIR__/trash
+
+Any directories and files below this directory are periodically deleted
+whenever BackupAFS_trashClean checks. When a backup is aborted or when an
+old backup expires, BackupAFS_dump simply moves the directory to
+__TOPDIR__/trash for later removal by BackupAFS_trashClean.
+
+=item __TOPDIR__/volsets/I<VolumeSet_name>
+
+For each VolumeSet, all the backups for that volset are stored below
+the directory __TOPDIR__/volsets/I<VolumeSet_name>.  This directory contains the
+following files:
+
+=over 4
+
+=item LOG
+
+Current log file for this VolumeSet from BackupAFS_dump.
+
+=item LOG.DDMMYYYY or LOG.DDMMYYYY.z
+
+Last month's log file.  Log files are aged monthly and compressed
+(if compression is enabled), and old LOG files are deleted.
+In earlier versions of BackupAFS these files used to have
+a suffix of 0, 1, ....
+
+=item XferERR or XferERR.z
+
+Output from the transport program (ie vos) for the most recent failed backup.
+
+=item new
+
+Subdirectory in which the current backup is stored.  This
+directory is renamed if the backup succeeds.
+
+=item XferLOG or XferLOG.z
+
+Output from the transport program (ie vos) for the current backup.
+
+=item nnn (an integer)
+
+Successful backups are in directories numbered sequentially starting at 0. These
+numbers B<do not necessarily correspond to incr dump levels>.
+
+=item XferLOG.nnn or XferLOG.nnn.z
+
+Output from the transport program (ie vos)
+corresponding to backup number nnn. B<Note that the restore numbers are not related to the backup number.>
+
+=item RestoreInfo.nnn
+
+Information about restore request #nnn including who, what, when, and
+why. This file is in Data::Dumper format. B<Note that the restore numbers are not related to the backup number.>
+
+=item RestoreLOG.nnn.z
+
+Output from smbclient, tar or rsync during restore #nnn.  (Note that the restore
+numbers are not related to the backup number.)
+
+=item backups
+
+A tab-delimited ascii table listing information about each successful
+backup, one per row.  The columns are:
+
+=over 4
+
+=item num
+
+The backup number, an integer that starts at 0 and increments
+for each successive backup.  The corresponding backup is stored
+in the directory num (eg: if this field is 5, then the backup is
+stored in __TOPDIR__/volsets/$VolumeSet/5).
+
+=item type
+
+Set to "full" or "incr" for full or incremental backup.
+
+=item startTime
+
+Start time of the backup in unix seconds.
+
+=item endTime
+
+Stop time of the backup in unix seconds.
+
+=item nFiles
+
+Number of files backed up (as reported by the transport mechanism).
+
+=item size
+
+Total file size backed up (as reported by the transport mechanism).
+
+=item nFilesExist
+
+Number of files that were already in the pool (BackupAFS does not use this field).
+
+=item sizeExist
+
+Total size of files that were already in the pool (BackupAFS does not use this field).
+
+=item nFilesNew
+
+Number of files that were not in the pool (as determined by BackupAFS_vosWrapper). 
+
+=item sizeNew
+
+Total size of files that were backed up (as determined by BackupAFS_vosWrapper).
+
+=item xferErrs
+
+Number of errors or warnings from vos.
+
+=item xferBadFile
+
+Number of errors from smbclient that were bad file errors (zero otherwise). (BackupAFS does not use this field).
+
+=item xferBadShare
+
+Number of errors from smbclient that were bad share errors (zero otherwise). (BackupAFS does not use this field).
+
+=item tarErrs
+
+Number of errors from BackupAFS_tarExtract. (BackupAFS does not use this field).
+
+=item compress
+
+The compression level used on this backup.  Zero or empty means no
+compression.
+
+=item sizeExistComp
+
+Total compressed size of files that were already in the pool (BackupAFS does not use this field).
+
+=item sizeNewComp
+
+Total compressed size of files that were not in the pool (as determined by BackupAFS_compress).
+
+=item noFill
+
+Set if this backup has not been filled in with the most recent previous filled or full backup.  This will/should always be set to 1 in BackupAFS.
+
+=item fillFromNum
+
+If this backup was filled (ie: noFill is 0) then this is the
+number of the backup that it was filled from. (BackupAFS does not use this field).
+
+=item mangle
+
+Set if this backup has mangled file names and attributes. Always false for backups in BackupAFS. True for backups created with BackupPC4AFS. BackupAFS comes with a "BackupAFS_migrate_unmangle_datadir" script which can be used to un-mangle the directory and filenames created by BackupPC4AFS.
+
+=item xferMethod
+
+Set to the value of $Conf{XferMethod} when this dump was done. For BackupAFS, "vos" is currently the only available XferMethod.
+
+=item level
+
+The level of this dump.  A full dump is level 0.  Incrementals are an integer 1-9.
+
+=back
+
+=item restores
+
+A tab-delimited ascii table listing information about each requested
+restore, one per row.  The columns are:
+
+=over 4
+
+=item num
+
+Restore number (matches the suffix of the RestoreInfo.nnn and
+RestoreLOG.nnn.z file), unrelated to the backup number.
+
+=item startTime
+
+Start time of the restore in unix seconds.
+
+=item endTime
+
+End time of the restore in unix seconds.
+
+=item result
+
+Result (ok or failed).
+
+=item errorMsg
+
+Error message if restore failed.
+
+=item nFiles
+
+Number of files restored.
+
+=item size
+
+Size in bytes of the restored files.
+
+=item tarCreateErrs
+
+Number of errors from BackupAFS_tarCreate during restore. (BackupAFS does not use this field).
+
+=item xferErrs
+
+Number of errors from vos during restore.
+
+=back
+
+=back
+
+=back
+
+=back
+
+=head2 File name mangling
+
+Backup file names are no longer stored in "mangled" form. In BackupPC4AFS
+(and in BackupPC), each node of
+a path is preceded by "f" (mnemonic: file), and special characters
+(\n, \r, % and /) are URI-encoded as "%xx", where xx is the ascii
+character's hex value.  So c:/craig/example.txt is now stored as
+fc/fcraig/fexample.txt.
+
+This was done mainly so meta-data could be stored alongside the backup
+files without name collisions. In particular, the attributes for the
+files in a directory are stored in a file called "attrib", and mangling
+avoids file name collisions (I discarded the idea of having a duplicate
+directory tree for every backup just to store the attributes). Other
+meta-data (eg: rsync checksums) could be stored in file names preceded
+by, eg, "c". There are two other benefits to mangling: the share name
+might contain "/" (eg: "/home/craig" for tar transport), and I wanted
+that represented as a single level in the storage tree. Secondly, as
+files are written to NewFileList for later processing by BackupAFS_compress,
+embedded newlines in the file's path will cause problems which are
+avoided by mangling.
+
+The CGI script undoes the mangling, so it is invisible to the user.
+Both mangled and unmangled backups are still viewable by the CGI interface 
+as long as the entry in the backups file is correctly set for that dump.
+
+=head2 Limitations
+
+BackupAFS isn't perfect (but it is getting better). Please see
+L<http://backupafs.sourceforge.net/faq/limitations.html> for a
+discussion of some of BackupAFS's limitations.
+
+=head2 Security issues
+
+In order to perform vos dump operations without tokens, we need to copy the AFS cell's keyfile to the BackupAFS server. This keyfile must be protected. Only the backupafs user should be able to read it. This means that the BackupAFS server should be kept as secure as your AFS fileservers. This document won't devolve into a security lecture, but suffice it to say you should turn off all unnecessary services and wrap or firewall the remaining services.
+
+=head1 Configuration File
+
+The BackupAFS configuration file resides in /etc/BackupAFS/config.pl.
+Optional per-PC configuration files reside in /etc/BackupAFS/volsets/$VolumeSet.pl
+This file can be used to override settings just for a particular PC.
+
+=head2 Modifying the main configuration file
+
+The configuration file is a perl script that is executed by BackupAFS, so
+you should be careful to preserve the file syntax (punctuation, quotes
+etc) when you edit it. It is recommended that you use CVS, RCS or some
+other method of source control for changing config.pl.
+
+BackupAFS reads or re-reads the main configuration file and
+the VolumeSet-List file in three cases:
+
+=over 4
+
+=item *
+
+Upon startup.
+
+=item *
+
+When BackupAFS is sent a HUP (-1) signal.  Assuming you installed the 
+init.d script, you can also do this with "/etc/init.d/backupafs reload".
+
+=item *
+
+When the modification time of config.pl file changes.  BackupAFS
+checks the modification time once during each regular wakeup.
+
+=back
+
+Whenever you change the configuration file you can either do
+a kill -HUP BackupAFS_pid or simply wait until the next regular
+wakeup period.
+
+Each time the configuration file is re-read a message is reported in the
+LOG file, so you can tail it (or view it via the CGI interface) to make
+sure your kill -HUP worked. Errors in parsing the configuration file are
+also reported in the LOG file.
+
+The optional per-VolumeSet configuration file (/etc/BackupAFS/volsets/I<VolumeSet_Name>.pl
+is read whenever it is needed by BackupAFS_dump, BackupAFS_compress and others.
+
+=head1 Configuration Parameters
+
+The configuration parameters are divided into five general groups.
+The first group (general server configuration) provides general
+configuration for BackupAFS.  The next two groups describe what to
+backup, when to do it, and how long to keep it.  The fourth group
+are settings for email reminders, and the final group contains
+settings for the CGI interface.
+
+All configuration settings in the second through fifth groups can
+be overridden by the per-VolumeSet config.pl file.
+
+=head2 General server configuration
+
+=over 4
+
+=item $Conf{ServerHost} = '';
+
+Host name on which the BackupAFS server is running.
+
+=item $Conf{ServerPort} = -1;
+
+TCP port number on which the BackupAFS server listens for and accepts
+connections.  Normally this should be disabled (set to -1).  The TCP
+port is only needed if apache runs on a different machine from BackupAFS.
+In that case, set this to any spare port number over 1024 (eg: 2359).
+If you enable the TCP port, make sure you set $Conf{ServerMesgSecret}
+too!
+
+=item $Conf{ServerMesgSecret} = '';
+
+Shared secret to make the TCP port secure.  Set this to a hard to guess
+string if you enable the TCP port (ie: $Conf{ServerPort} > 0).
+
+To avoid possible attacks via the TCP socket interface, every client
+message is protected by an MD5 digest. The MD5 digest includes four
+items:
+  - a seed that is sent to the client when the connection opens
+  - a sequence number that increments for each message
+  - a shared secret that is stored in $Conf{ServerMesgSecret}
+  - the message itself.
+
+The message is sent in plain text preceded by the MD5 digest.  A
+snooper can see the plain-text seed sent by BackupAFS and plain-text
+message from the client, but cannot construct a valid MD5 digest since
+the secret $Conf{ServerMesgSecret} is unknown.  A replay attack is
+not possible since the seed changes on a per-connection and
+per-message basis.
+
+=item $Conf{MyPath} = '/bin';
+
+PATH setting for BackupAFS.  An explicit value is necessary
+for taint mode.  Value shouldn't matter too much since
+all execs use explicit paths.  However, taint mode in perl
+will complain if this directory is world writable.
+
+=item $Conf{UmaskMode} = 027;
+
+Permission mask for directories and files created by BackupAFS.
+Default value prevents any access from group other, and prevents
+group write.
+
+=item $Conf{WakeupSchedule} = [23];
+
+Times at which we wake up, check all the volumesets, and schedule necessary
+backups.  Times are measured in hours since midnight.  Can be
+fractional if necessary (eg: 4.25 means 4:15am).
+
+If the volsets you are backing up are always available (ie, not at the end
+of a dialup link, or are not in another country), you might only have one wakeup each night.
+
+On the other hand, if you are backing
+up volumesets that are only intermittently connected to the network you
+might need multiple wakeup times.
+
+Examples:
+
+    $Conf{WakeupSchedule} = [22.5];         # once per day at 10:30 pm.
+    $Conf{WakeupSchedule} = [2,4,6,8,10,12,14,16,18,20,22];  # every 2 hours
+
+The default value is 23 (11:00PM).
+
+The first entry of $Conf{WakeupSchedule} is when BackupAFS_nightly is run.
+You might want to re-arrange the entries in $Conf{WakeupSchedule}
+(they don't have to be ascending) so that the first entry is when
+you want BackupAFS_nightly to run (eg: when you don't expect a lot
+of regular backups to run).
+
+=item $Conf{MaxBackups} = 4;
+
+Maximum number of simultaneous backups to run.  If there
+are no user backup requests then this is the maximum number
+of simultaneous backups.
+
+=item $Conf{MaxUserBackups} = 4;
+
+Additional number of simultaneous backups that users can run.
+As many as $Conf{MaxBackups} + $Conf{MaxUserBackups} requests can
+run at the same time.
+
+=item $Conf{MaxPendingCmds} = 15;
+
+Maximum number of pending link commands. New backups will only be
+started if there are no more than $Conf{MaxPendingCmds} plus
+$Conf{MaxBackups} number of pending link commands, plus running jobs.
+This limit is to make sure BackupAFS doesn't fall too far behind in
+running BackupAFS_compress commands.
+
+=item $Conf{CmdQueueNice} = 10;
+
+Nice level at which CmdQueue commands (eg: BackupAFS_compress and
+BackupAFS_nightly) are run at.
+
+=item $Conf{MaxBackupAFSNightlyJobs} = 2;
+
+How many BackupAFS_nightly processes to run in parallel.
+
+Each night, at the first wakeup listed in $Conf{WakeupSchedule},
+BackupAFS_nightly is run.  Its job is to remove unneeded files
+in the pool, ie: files that only have one link.  To avoid race
+conditions, BackupAFS_nightly and BackupAFS_compress cannot run at
+the same time.  Starting in v1.0.0, BackupAFS_nightly can run
+concurrently with backups (BackupAFS_dump).
+
+So to reduce the elapsed time, you might want to increase this
+setting to run several BackupAFS_nightly processes in parallel
+(eg: 4, or even 8).
+
+=item $Conf{BackupAFSNightlyPeriod} = 1;
+
+This setting is a reference to additional work which BackupAFS_nightly used to do in BackupPC. It is not used in BackupAFS. 
+
+=item $Conf{MaxOldLogFiles} = 14;
+
+Maximum number of log files we keep around in log directory.
+These files are aged nightly.  A setting of 14 means the log
+directory will contain about 2 weeks of old log files, in
+particular at most the files LOG, LOG.0, LOG.1, ... LOG.13
+(except today's LOG, these files will have a .z extension if
+compression is on).
+
+If you decrease this number after BackupAFS has been running for a
+while you will have to manually remove the older log files.
+
+=item $Conf{DfPath} = '';
+
+Full path to the df command.  Security caution: normal users
+should not allowed to write to this file or directory.
+
+=item $Conf{DfCmd} = '$dfPath $topDir';
+
+Command to run df.  The following variables are substituted at run-time:
+
+  $dfPath      path to df ($Conf{DfPath})
+  $topDir      top-level BackupAFS data directory
+
+Note: all Cmds are executed directly without a shell, so the prog name
+needs to be a full path and you can't include shell syntax like
+redirection and pipes; put that in a script if you need it.
+
+=item $Conf{AfsVosBackupArgs} = '--volume=$shareName --type=$type --incrDate=$incrDate --incrLevel=$incrLevel --clientDir=$topDir/volsets/$client --dest=$topDir/volsets/$client/new';
+
+=item $Conf{AfsVosRestoreArgs} = '--volume=$shareName --type=$type --clientDir=$topDir/volsets/$client --restoreDir=$restoreDir --bkupSrcNum=$bkupSrcNum --bkupSrcVolSet=$bkupSrcVolSet --fileList=$fileList';
+
+Arguments that are passed from BackupAFS_dump to BackupAFS_vosWrapper. It is probably not a good idea to edit these unless you are a BackupAFS developer.
+
+=item $Conf{AfsVosPath} = '';
+
+=item $Conf{CatPath} = '';
+
+=item $Conf{GzipPath} = '';
+
+=item $Conf{PigzPath} = '';
+
+Full path to various commands used by BackupAFS.
+
+=item $Conf{DfMaxUsagePct} = 95;
+
+Maximum threshold for disk utilization on the __TOPDIR__ filesystem.
+If the output from $Conf{DfPath} reports a percentage larger than
+this number then no new regularly scheduled backups will be run.
+However, user requested backups (which are usually incremental and
+tend to be small) are still performed, independent of disk usage.
+Also, currently running backups will not be terminated when the disk
+usage exceeds this number.
+
+=item $Conf{TrashCleanSleepSec} = 300;
+
+How long BackupAFS_trashClean sleeps in seconds between each check
+of the trash directory.  Once every 5 minutes should be reasonable.
+
+=item $Conf{BackupAFSUser} = '';
+
+The BackupAFS user.
+
+=item $Conf{TopDir} = '';
+
+=item $Conf{ConfDir} = '';
+
+=item $Conf{LogDir} = '';
+
+=item $Conf{InstallDir} = '';
+
+=item $Conf{CgiDir} = '';
+
+Important installation directories:
+
+  TopDir     - where all the backup data is stored
+  ConfDir    - where the main config and VolumeSet-List files resides
+  LogDir     - where log files and other transient information
+  InstallDir - where the bin, lib and doc installation dirs reside.
+               Note: you cannot change this value since all the
+               perl scripts include this path.  You must reinstall
+               with configure.pl to change InstallDir.
+  CgiDir     - Apache CGI directory for BackupAFS_Admin
+
+Note: it is STRONGLY recommended that you don't change the
+values here.  These are set at installation time and are here
+for reference and are used during upgrades.
+
+Instead of changing TopDir here it is recommended that you use
+a symbolic link to the new location, or mount the new BackupAFS
+store at the existing $Conf{TopDir} setting.
+
+=item $Conf{BackupAFSUserVerify} = 1;
+
+Whether BackupAFS and the CGI script BackupAFS_Admin verify that they
+are really running as user $Conf{BackupAFSUser}.  If this flag is set
+and the effective user id (euid) differs from $Conf{BackupAFSUser}
+then both scripts exit with an error.  This catches cases where
+BackupAFS might be accidently started as root or the wrong user,
+or if the CGI script is not installed correctly.
+
+=item $Conf{PerlModuleLoad} = undef;
+
+Advanced option for asking BackupAFS to load additional perl modules.
+Can be a list (array ref) of module names to load at startup.
+
+=item $Conf{ServerInitdPath} = '';
+
+=item $Conf{ServerInitdStartCmd} = '';
+
+Path to init.d script and command to use that script to start the
+server from the CGI interface.  The following variables are substituted
+at run-time:
+
+  $sshPath           path to ssh ($Conf{SshPath})
+  $serverHost        same as $Conf{ServerHost}
+  $serverInitdPath   path to init.d script ($Conf{ServerInitdPath})
+
+Example:
+
+
+$Conf{ServerInitdPath}     = '/etc/init.d/backupafs';
+$Conf{ServerInitdStartCmd} = '$sshPath -q -x -l root $serverHost'
+                           . ' $serverInitdPath start'
+                           . ' < /dev/null >& /dev/null';
+
+Note: all Cmds are executed directly without a shell, so the prog name
+needs to be a full path and you can't include shell syntax like
+redirection and pipes; put that in a script if you need it.
+
+=back
+
+=head2 What to backup and when to do it
+
+=over 4
+
+=item $Conf{FullPeriod} = 6.97;
+
+Minimum period in days between full backups. A full dump will only be
+done if at least this much time has elapsed since the last full dump,
+and at least $Conf{IncrPeriod} days has elapsed since the last
+successful dump.
+
+Typically this is set slightly less than an integer number of days. The
+time taken for the backup, plus the granularity of $Conf{WakeupSchedule}
+will make the actual backup interval a bit longer.
+
+=item $Conf{IncrPeriod} = 0.97;
+
+Minimum period in days between incremental backups (a user- or admin-requested
+incremental backup will be done anytime on demand).
+
+Typically this is set slightly less than an integer number of days. The
+time taken for the backup, plus the granularity of $Conf{WakeupSchedule}
+will make the actual backup interval a bit longer.
+
+=item $Conf{FullKeepCnt} = 1;
+
+Number of full backups to keep.  Must be >= 1.
+
+In the steady state, each time a full backup completes successfully
+the oldest one is removed.  If this number is decreased, the
+extra old backups will be removed.
+
+If filling of incremental dumps is off the oldest backup always
+has to be a full (ie: filled) dump.  This might mean one or two
+extra full dumps are kept until the oldest incremental backups expire.
+
+Exponential backup expiry is also supported.  This allows you to specify:
+
+  - num fulls to keep at intervals of 1 * $Conf{FullPeriod}, followed by
+  - num fulls to keep at intervals of 2 * $Conf{FullPeriod},
+  - num fulls to keep at intervals of 4 * $Conf{FullPeriod},
+  - num fulls to keep at intervals of 8 * $Conf{FullPeriod},
+  - num fulls to keep at intervals of 16 * $Conf{FullPeriod},
+
+and so on.  This works by deleting every other full as each expiry
+boundary is crossed.
+
+Exponential expiry is specified using an array for $Conf{FullKeepCnt}:
+
+  $Conf{FullKeepCnt} = [4, 2, 3];
+
+Entry #n specifies how many fulls to keep at an interval of
+2^n * $Conf{FullPeriod} (ie: 1, 2, 4, 8, 16, 32, ...).
+
+The example above specifies keeping 4 of the most recent full backups
+(1 week interval) two full backups at 2 week intervals, and 3 full
+backups at 4 week intervals, eg:
+
+   full 0 19 weeks old   \
+   full 1 15 weeks old    >---  3 backups at 4 * $Conf{FullPeriod}
+   full 2 11 weeks old   /
+   full 3  7 weeks old   \____  2 backups at 2 * $Conf{FullPeriod}
+   full 4  5 weeks old   /
+   full 5  3 weeks old   \
+   full 6  2 weeks old    \___  4 backups at 1 * $Conf{FullPeriod}
+   full 7  1 week old     /
+   full 8  current       /
+
+On a given week the spacing might be less than shown as each backup
+ages through each expiry period.  For example, one week later, a
+new full is completed and the oldest is deleted, giving:
+
+   full 0 16 weeks old   \
+   full 1 12 weeks old    >---  3 backups at 4 * $Conf{FullPeriod}
+   full 2  8 weeks old   /
+   full 3  6 weeks old   \____  2 backups at 2 * $Conf{FullPeriod}
+   full 4  4 weeks old   /
+   full 5  3 weeks old   \
+   full 6  2 weeks old    \___  4 backups at 1 * $Conf{FullPeriod}
+   full 7  1 week old     /
+   full 8  current       /
+
+You can specify 0 as a count (except in the first entry), and the
+array can be as long as you wish.  For example:
+
+
+  $Conf{FullKeepCnt} = [4, 0, 4, 0, 0, 2];
+
+This will keep 10 full dumps, 4 most recent at 1 * $Conf{FullPeriod},
+followed by 4 at an interval of 4 * $Conf{FullPeriod} (approx 1 month
+apart), and then 2 at an interval of 32 * $Conf{FullPeriod} (approx
+7-8 months apart).
+
+Example: these two settings are equivalent and both keep just
+the four most recent full dumps:
+
+   $Conf{FullKeepCnt} = 4;
+   $Conf{FullKeepCnt} = [4];
+
+=item $Conf{FullKeepCntMin} = 1;
+
+=item $Conf{FullAgeMax} = 90;
+
+Very old full backups are removed after $Conf{FullAgeMax} days.  However,
+we keep at least $Conf{FullKeepCntMin} full backups no matter how old
+they are.
+
+Note that $Conf{FullAgeMax} will be increased to $Conf{FullKeepCnt}
+times $Conf{FullPeriod} if $Conf{FullKeepCnt} specifies enough
+full backups to exceed $Conf{FullAgeMax}.
+
+=item $Conf{IncrKeepCnt} = 6;
+
+Number of incremental backups to keep.  Must be >= 1.
+
+In the steady state, each time an incr backup completes successfully
+the oldest one is removed.  If this number is decreased, the
+extra old backups will be removed.
+
+=item $Conf{IncrKeepCntMin} = 1;
+
+=item $Conf{IncrAgeMax} = 30;
+
+Very old incremental backups are removed after $Conf{IncrAgeMax} days.
+However, we keep at least $Conf{IncrKeepCntMin} incremental backups no
+matter how old they are.
+
+=item $Conf{IncrLevels} = [1];
+
+Level of each incremental.  "Level" follows the terminology
+of dump(1).  A full backup has level 0.  A new incremental
+of level N will backup all files that have changed since
+the most recent backup of a lower level.
+
+The entries of $Conf{IncrLevels} apply in order to each
+incremental after each full backup.  It wraps around until
+the next full backup.  For example, these two settings
+have the same effect:
+
+      $Conf{IncrLevels} = [1, 2, 3];
+      $Conf{IncrLevels} = [1, 2, 3, 1, 2, 3];
+
+This means the 1st and 4th incrementals (level 1) go all
+the way back to the full.  The 2nd and 3rd (and 5th and
+6th) backups just go back to the immediate preceeding
+incremental.
+
+Specifying a sequence of multi-level incrementals will
+usually mean more than $Conf{IncrKeepCnt} incrementals will
+need to be kept, since lower level incrementals are needed
+to merge a complete view of a backup.  For example, with
+
+      $Conf{FullPeriod}  = 7;
+      $Conf{IncrPeriod}  = 1;
+      $Conf{IncrKeepCnt} = 6;
+      $Conf{IncrLevels}  = [1, 2, 3, 4, 5, 6];
+
+there will be up to 11 incrementals in this case:
+
+      backup #0  (full, level 0, oldest)
+      backup #1  (incr, level 1)
+      backup #2  (incr, level 2)
+      backup #3  (incr, level 3)
+      backup #4  (incr, level 4)
+      backup #5  (incr, level 5)
+      backup #6  (incr, level 6)
+      backup #7  (full, level 0)
+      backup #8  (incr, level 1)
+      backup #9  (incr, level 2)
+      backup #10 (incr, level 3)
+      backup #11 (incr, level 4)
+      backup #12 (incr, level 5, newest)
+
+Backup #1 (the oldest level 1 incremental) can't be deleted
+since backups 2..6 depend on it.  Those 6 incrementals can't
+all be deleted since that would only leave 5 (#8..12).
+When the next incremental happens (level 6), the complete
+set of 6 older incrementals (#1..6) will be deleted, since
+that maintains the required number ($Conf{IncrKeepCnt})
+of incrementals.  This situation is reduced if you set
+shorter chains of multi-level incrementals, eg:
+
+      $Conf{IncrLevels}  = [1, 2, 3];
+
+would only have up to 2 extra incremenals before all 3
+are deleted.
+
+BackupAFS as usual merges the full and the sequence
+of incrementals together so each incremental can be
+browsed and restored as though it is a complete backup.
+If you specify a long chain of incrementals then more
+backups need to be merged when browsing, restoring,
+or getting the starting point for rsync backups.
+In the example above (levels 1..6), browing backup
+#6 requires 7 different backups (#0..6) to be merged.
+
+Because of this merging and the additional incrementals
+that need to be kept, it is recommended that some
+level 1 incrementals be included in $Conf{IncrLevels}.
+
+Prior to version 3.0 incrementals were always level 1,
+meaning each incremental backed up all the files that
+changed since the last full.
+
+=item $Conf{BackupsDisable} = 0;
+
+Disable all full and incremental backups.  These settings are
+useful for a client that is no longer being backed up
+(eg: a retired machine), but you wish to keep the last
+backups available for browsing or restoring to other machines.
+
+There are three values for $Conf{BackupsDisable}:
+
+  0    Backups are enabled.
+
+  1    Don't do any regular backups on this client.  Manually
+       requested backups (via the CGI interface) will still occur.
+
+  2    Don't do any backups on this client.  Manually requested
+       backups (via the CGI interface) will be ignored.
+
+=item $Conf{RestoreInfoKeepCnt} = 10;
+
+Number of restore logs to keep.  BackupAFS remembers information about
+each restore request.  This number per client will be kept around before
+the oldest ones are pruned.
+
+Note: files/dirs downloaded via the browser don't count as
+restores.  Only the first restore option (where the volumes
+are restored to AFS) count as restores that are logged.
+
+=item $Conf{BlackoutPeriods} = [ ... ];
+
+One or more blackout periods can be specified.  If a client is
+subject to blackout then no regular (non-manual) backups will
+be started during any of these periods (already-running dumps
+will not be interruped, however).  hourBegin and hourEnd
+specify hours from midnight and weekDays is a list of days of
+the week where 0 is Sunday, 1 is Monday etc.
+
+For example:
+
+
+   $Conf{BlackoutPeriods} = [
+	{
+	    hourBegin =>  7.0,
+	    hourEnd   => 19.5,
+	    weekDays  => [1, 2, 3, 4, 5],
+	},
+   ];
+
+specifies one blackout period from 7:00am to 7:30pm local time
+on Mon-Fri.
+
+The blackout period can also span midnight by setting
+hourBegin > hourEnd, eg:
+
+   $Conf{BlackoutPeriods} = [
+	{
+	    hourBegin =>  7.0,
+	    hourEnd   => 19.5,
+	    weekDays  => [1, 2, 3, 4, 5],
+	},
+	{
+	    hourBegin => 23,
+	    hourEnd   =>  5,
+	    weekDays  => [5, 6],
+	},
+   ];
+
+This specifies one blackout period from 7:00am to 7:30pm local time
+on Mon-Fri, and a second period from 11pm to 5am on Friday and
+Saturday night.
+
+=item $Conf{BackupZeroFilesIsFatal} = 1;
+
+A backup of a share that has zero files is considered fatal. This is
+used to catch miscellaneous Xfer errors that result in no files being
+backed up.  If you have shares that might be empty (and therefore an
+empty backup is valid) you should set this flag to 0. BackupAFS does not
+currently use this setting.
+
+=back
+
+=head2 How to backup a VolumeSet
+
+=over 4
+
+=item $Conf{XferMethod} = 'vos';
+
+What transport method to use to backup each volset. Currently there
+is only one valid XferMethod in BackupAFS:
+
+  - 'vos':     backup and restore via AFS 'vos dump' and 'vos restore'.
+
+=item $Conf{XferLogLevel} = 1;
+
+Level of verbosity in Xfer log files.  0 means be quiet, 1 will give
+will give one line per file, 2 will also show skipped files on
+incrementals, higher values give more output.
+
+=item $Conf{PingPath} = '';
+
+Full path to the ping command.  Security caution: normal users
+should not be allowed to write to this file or directory.
+
+If you want to disable ping checking, set this to some program
+that exits with 0 status, eg:
+
+    $Conf{PingPath} = '/bin/echo';
+
+=item $Conf{PingCmd} = '$pingPath -c 1 $host';
+
+Ping command.  The following variables are substituted at run-time:
+
+  $pingPath      path to ping ($Conf{PingPath})
+  $host          host name
+
+Wade Brown reports that on solaris 2.6 and 2.7 ping -s returns the wrong
+exit status (0 even on failure).  Replace with "ping $host 1", which
+gets the correct exit status but we don't get the round-trip time.
+
+Note: all Cmds are executed directly without a shell, so the prog name
+needs to be a full path and you can't include shell syntax like
+redirection and pipes; put that in a script if you need it.
+
+=item $Conf{PingMaxMsec} = 20;
+
+Maximum round-trip ping time in milliseconds.
+
+=item $Conf{CompressLevel} = 0;
+
+Compression level to use on files.  0 means no compression.  Compression
+levels can be from 1 (least cpu time, worst compression) to
+9 (most cpu time, better compression).  The recommended value
+is 3 or 4.  Changing to 5, for example, will take maybe 20% more cpu time
+and will get another 2-3% additional compression. See the gzip
+documentation for more information about compression levels.
+
+Note: compression requires either 'gzip' or 'pigz' be installed and executable by the backupafs user. If the requested binary can't be found then $Conf{CompressLevel} is forced to 0 (compression off).
+
+=item $Conf{ClientTimeout} = 72000;
+
+Timeout in seconds when listening for the transport program's
+(vos) stdout. If no output is received during this
+time, then it is assumed that something has wedged during a backup,
+and the backup is terminated.
+
+Despite the name, this parameter sets the timeout for all transport
+methods (vos).
+
+=item $Conf{MaxOldPerPCLogFiles} = 12;
+
+Maximum number of log files we keep around in each PC's directory
+(ie: volsets/$volset).  These files are aged monthly.  A setting of 12
+means there will be at most the files LOG, LOG.0, LOG.1, ... LOG.11
+in the volsets/$volset directory (ie: about a years worth).  (Except this
+month's LOG, these files will have a .z extension if compression
+is on).
+
+If you decrease this number after BackupAFS has been running for a
+while you will have to manually remove the older log files.
+
+=item $Conf{DumpPreUserCmd} = undef;
+
+=item $Conf{DumpPostUserCmd} = undef;
+
+=item $Conf{DumpPreShareCmd} = undef;
+
+=item $Conf{DumpPostShareCmd} = undef;
+
+=item $Conf{RestorePreUserCmd} = undef;
+
+=item $Conf{RestorePostUserCmd} = undef;
+
+Optional commands to run before and after dumps and restores,
+and also before and after each volume of a dump.
+
+Stdout from these commands will be written to the Xfer (or Restore)
+log file.  One example of using these commands would be to
+shut down and restart a database process.
+
+B<These commands have not been tested with BackupAFS; they are a holdover from BackupPC.>
+
+   $Conf{DumpPreUserCmd} = '$sshPath -q -x -l root $host /usr/bin/dumpMysql';
+
+The following variable substitutions are made at run time for
+$Conf{DumpPreUserCmd}, $Conf{DumpPostUserCmd}, $Conf{DumpPreShareCmd}
+and $Conf{DumpPostShareCmd}:
+
+       $type         type of dump (incr or full)
+       $xferOK       1 if the dump succeeded, 0 if it didn't
+       $client       client name being backed up
+       $host         host name (could be different from client name if
+                                $Conf{ClientNameAlias} is set)
+       $hostIP       IP address of host
+       $user         user name from the VolumeSet-List file
+       $moreUsers    list of additional users from the VolumeSet-List file
+       $share        the first share name (or current share for
+                       $Conf{DumpPreShareCmd} and $Conf{DumpPostShareCmd})
+       $shares       list of all the share names
+       $XferMethod   value of $Conf{XferMethod} (eg: tar, rsync, smb)
+       $sshPath      value of $Conf{SshPath},
+       $cmdType      set to DumpPreUserCmd or DumpPostUserCmd
+
+The following variable substitutions are made at run time for
+$Conf{RestorePreUserCmd} and $Conf{RestorePostUserCmd}:
+
+       $client       client name being backed up
+       $xferOK       1 if the restore succeeded, 0 if it didn't
+       $host         host name (could be different from client name if
+                                $Conf{ClientNameAlias} is set)
+       $hostIP       IP address of host
+       $user         user name from the VolumeSet-List file
+       $moreUsers    list of additional users from the VolumeSet-List file
+       $share        the first share name
+       $XferMethod   value of $Conf{XferMethod} (eg: tar, rsync, smb)
+       $sshPath      value of $Conf{SshPath},
+       $type         set to "restore"
+       $bkupSrcHost  host name of the restore source
+       $bkupSrcShare share name of the restore source
+       $bkupSrcNum   backup number of the restore source
+       $pathHdrSrc   common starting path of restore source
+       $pathHdrDest  common starting path of destination
+       $fileList     list of files being restored
+       $cmdType      set to RestorePreUserCmd or RestorePostUserCmd
+
+Note: all Cmds are executed directly without a shell, so the prog name
+needs to be a full path and you can't include shell syntax like
+redirection and pipes; put that in a script if you need it.
+
+=item $Conf{UserCmdCheckStatus} = 0;
+
+Whether the exit status of each PreUserCmd and
+PostUserCmd is checked.
+
+If set and the Dump/Restore/Archive Pre/Post UserCmd
+returns a non-zero exit status then the dump/restore/archive
+is aborted.  To maintain backward compatibility (where
+the exit status in early versions was always ignored),
+this flag defaults to 0.
+
+If this flag is set and the Dump/Restore/Archive PreUserCmd
+fails then the matching Dump/Restore/Archive PostUserCmd is
+not executed.  If DumpPreShareCmd returns a non-exit status,
+then DumpPostShareCmd is not executed, but the DumpPostUserCmd
+is still run (since DumpPreUserCmd must have previously
+succeeded).
+
+An example of a DumpPreUserCmd that might fail is a script
+that snapshots or dumps a database which fails because
+of some database error.
+
+=back
+
+=head2 Email reminders, status and messages
+
+=over 4
+
+=item $Conf{SendmailPath} = '';
+
+Full path to the sendmail command.  Security caution: normal users
+should not allowed to write to this file or directory.
+
+=item $Conf{EMailNotifyMinDays} = 2.5;
+
+Minimum period between consecutive emails to a single user.
+This tries to keep annoying email to users to a reasonable
+level.  Email checks are done nightly, so this number is effectively
+rounded up (ie: 2.5 means a user will never receive email more
+than once every 3 days).
+
+=item $Conf{EMailFromUserName} = '';
+
+Name to use as the "from" name for email.  Depending upon your mail
+handler this is either a plain name (eg: "admin") or a fully-qualified
+name (eg: "admin@mydomain.com").
+
+=item $Conf{EMailAdminUserName} = '';
+
+Destination address to an administrative user who will receive a
+nightly email with warnings and errors.  If there are no warnings
+or errors then no email will be sent.  Depending upon your mail
+handler this is either a plain name (eg: "admin") or a fully-qualified
+name (eg: "admin@mydomain.com").
+
+=item $Conf{EMailUserDestDomain} = '';
+
+Destination domain name for email sent to users.  By default
+this is empty, meaning email is sent to plain, unqualified
+addresses.  Otherwise, set it to the destintation domain, eg:
+
+   $Cong{EMailUserDestDomain} = '@mydomain.com';
+
+With this setting user email will be set to 'user@mydomain.com'.
+
+=item $Conf{EMailNoBackupEverSubj} = undef;
+
+=item $Conf{EMailNoBackupEverMesg} = undef;
+
+This subject and message is sent to a user if their PC has never been
+backed up.
+
+These values are language-dependent.  The default versions can be
+found in the language file (eg: lib/BackupAFS/Lang/en.pm).  If you
+need to change the message, copy it here and edit it, eg:
+
+  $Conf{EMailNoBackupEverMesg} = <<'EOF';
+  To: $user$domain
+  cc:
+  Subject: $subj
+
+  Dear $userName,
+
+  This is a site-specific email message.
+  EOF
+
+=item $Conf{EMailNotifyOldBackupDays} = 7.0;
+
+How old the most recent backup has to be before notifying user.
+When there have been no backups in this number of days the user
+is sent an email.
+
+=item $Conf{EMailNoBackupRecentSubj} = undef;
+
+=item $Conf{EMailNoBackupRecentMesg} = undef;
+
+This subject and message is sent to a user if their PC has not recently
+been backed up (ie: more than $Conf{EMailNotifyOldBackupDays} days ago).
+
+These values are language-dependent.  The default versions can be
+found in the language file (eg: lib/BackupAFS/Lang/en.pm).  If you
+need to change the message, copy it here and edit it, eg:
+
+  $Conf{EMailNoBackupRecentMesg} = <<'EOF';
+  To: $user$domain
+  cc:
+  Subject: $subj
+
+  Dear $userName,
+
+  This is a site-specific email message.
+  EOF
+
+=item $Conf{EMailHeaders} = <<EOF;
+
+Additional email headers.  This sets to charset to
+utf8.
+
+=back
+
+=head2 CGI user interface configuration settings
+
+=over 4
+
+=item $Conf{CgiAdminUserGroup} = '';
+
+=item $Conf{CgiAdminUsers} = '';
+
+Normal users can only access information specific to their volset.
+They can start/stop/browse/restore backups.
+
+Administrative users have full access to all VolumeSets , plus overall
+status and log information.
+
+The administrative users are the union of the unix/linux group
+$Conf{CgiAdminUserGroup} and the manual list of users, separated
+by spaces, in $Conf{CgiAdminUsers}. If you don't want a group or
+manual list of users set the corresponding configuration setting
+to undef or an empty string.
+
+If you want every user to have admin privileges (careful!), set
+$Conf{CgiAdminUsers} = '*'.
+
+Examples:
+
+   $Conf{CgiAdminUserGroup} = 'admin';
+   $Conf{CgiAdminUsers}     = 'craig celia';
+   --> administrative users are the union of group admin, plus
+     craig and celia.
+
+   $Conf{CgiAdminUserGroup} = '';
+   $Conf{CgiAdminUsers}     = 'craig celia';
+   --> administrative users are only craig and celia'.
+
+=item $Conf{CgiURL} = undef;
+
+URL of the BackupAFS_Admin CGI script.  Used for email messages.
+
+=item $Conf{Language} = 'en';
+
+Language to use.  See lib/BackupAFS/Lang for the list of supported
+languages, which include English (en), French (fr), Spanish (es),
+German (de), Italian (it), Dutch (nl), Polish (pl), Portuguese
+Brazillian (pt_br) and Chinese (zh_CH).
+
+Currently the Language setting applies to the CGI interface and email
+messages sent to users.  Log files and other text are still in English.
+
+=item $Conf{CgiUserHomePageCheck} = '';
+
+=item $Conf{CgiUserUrlCreate} = 'mailto:%s';
+
+User names that are rendered by the CGI interface can be turned
+into links into their home page or other information about the
+user.  To set this up you need to create two sprintf() strings,
+that each contain a single '%s' that will be replaced by the user
+name.  The default is a mailto: link.
+
+$Conf{CgiUserHomePageCheck} should be an absolute file path that
+is used to check (via "-f") that the user has a valid home page.
+Set this to undef or an empty string to turn off this check.
+
+$Conf{CgiUserUrlCreate} should be a full URL that points to the
+user's home page.  Set this to undef or an empty string to turn
+off generation of URLs for user names.
+
+Example:
+
+   $Conf{CgiUserHomePageCheck} = '/var/www/html/users/%s.html';
+   $Conf{CgiUserUrlCreate}     = 'http://myhost/users/%s.html';
+   --> if /var/www/html/users/craig.html exists, then 'craig' will
+     be rendered as a link to http://myhost/users/craig.html.
+
+=item $Conf{CgiDateFormatMMDD} = 1;
+
+Date display format for CGI interface.  A value of 1 uses US-style
+dates (MM/DD), a value of 2 uses full YYYY-MM-DD format, and zero
+for international dates (DD/MM).
+
+=item $Conf{CgiSearchBoxEnable} = 1;
+
+Enable/disable the search box in the navigation bar.
+
+=item $Conf{CgiNavBarLinks} = [ ... ];
+
+Additional navigation bar links.  These appear for both regular users
+and administrators.  This is a list of hashes giving the link (URL)
+and the text (name) for the link.  Specifying lname instead of name
+uses the language specific string (ie: $Lang->{lname}) instead of
+just literally displaying name.
+
+=item $Conf{CgiStatusHilightColor} = { ...
+
+Hilight colors based on status that are used in the PC summary page.
+
+=item $Conf{CgiHeaders} = '<meta http-equiv="pragma" content="no-cache">';
+
+Additional CGI header text.
+
+=item $Conf{CgiImageDir} = '';
+
+Directory where images are stored.  This directory should be below
+Apache's DocumentRoot.  This value isn't used by BackupAFS but is
+used by configure.pl when you upgrade BackupAFS.
+
+Example:
+
+    $Conf{CgiImageDir} = '/var/www/htdocs/BackupAFS';
+
+=item $Conf{CgiExt2ContentType} = { };
+
+Additional mappings of file name extenions to Content-Type for
+individual file restore.  See $Ext2ContentType in BackupAFS_Admin
+for the default setting.  You can add additional settings here,
+or override any default settings.  Example:
+
+
+    $Conf{CgiExt2ContentType} = {
+                'pl'  => 'text/plain',
+         };
+
+=item $Conf{CgiImageDirURL} = '';
+
+URL (without the leading http://host) for BackupAFS's image directory.
+The CGI script uses this value to serve up image files.
+
+Example:
+
+    $Conf{CgiImageDirURL} = '/BackupAFS';
+
+=item $Conf{CgiCSSFile} = 'BackupAFS_stnd.css';
+
+CSS stylesheet "skin" for the CGI interface.  It is stored
+in the $Conf{CgiImageDir} directory and accessed via the
+$Conf{CgiImageDirURL} URL.
+
+For BackupAFS v3.x several color, layout and font changes were made.
+The previous v2.x version is available as BackupAFS_stnd_orig.css, so
+if you prefer the old skin, change this to BackupAFS_stnd_orig.css.
+
+=item $Conf{CgiUserConfigEditEnable} = 1;
+
+Whether the user is allowed to edit their per-PC config.
+
+=item $Conf{CgiUserConfigEdit} = { ...
+
+Which per-volset config variables a non-admin user is allowed
+to edit.  Admin users can edit all per-volset config variables,
+even if disabled in this list.
+
+SECURITY WARNING: Do not let users edit any of the Cmd
+config variables!  That's because a user could set a
+Cmd to a shell script of their choice and it will be
+run as the BackupAFS user.  That script could do all
+sorts of bad things.
+
+=back
+
+=head1 Migrating from BackupPC4AFS
+
+While both software applications are based on BackupPC, there are several notable functional differences between BackupPC4AFS and BackupAFS.
+
+=head2 Migrating VolumeSets
+
+If you have not been using the AFS "backup" database (whether using butc, BackupPC4AFS, etc), you may safely skip this section.
+
+BackupPC4AFS stored the definition of exactly which volumes are included in a specific volumeset in the AFS backup database. BackupAFS stores this definition in the VolumeSet-List file. The exact format of the VolumeSet-List file is covered in Step 6: Setting up the VolumeSet-List file portion of the installation instructions.
+
+BackupPC4AFS prefixed all AFS volume sets with "afs_", which was used internally to indicate to BackupPC4AFS that a specific volumeset (host) actually represented a set of volumes to dump. B<BackupAFS does NOT do this. The name of the volumeset is used as recorded in the VolumeSet-List file.> 
+
+To facilitate the migration of volumesets and their definitions (volume entries) from the AFS database to the BackupAFS VolumeSet-List file, a migration script, BackupAFS_migrate_populate_VolSet-List is included with the distribution.
+
+"BackupAFS_migrate_populate_VolSet-List" takes no arguments. It queries the AFS backup database and outputs its best guess at correct VolumeSet names and corresponding volume entries on STDOUT. It does expect to be able to query the backup database using the -localauth option, therefore it should be executed after the cell's KeyFile is already installed on the BackupAFS server.
+
+Limitations:
+
+=over 4
+
+=item *
+
+The number of volume entries in BackupAFS is limited to 5. This means that existing volume sets, stored in the AFS backup database, which have more than 5 volume entries, will be truncated to 5 entries. It is advised to check the output and add any missing entries to a new VolumeSet in BackupAFS (either via the CGI or by editing the VolumeSet-List file
+
+=item *
+
+The AFS backup database has no notion of user ownership of volume sets. Therefore the contents of the "users" and "moreUsers" fields will be blank. These can be set after migration, if desired.
+
+=item *
+
+The migration script must be executed as a user with permissions to run "backup -localauth" and permission to write to the /etc/BackupAFS/VolSet-List file. This is usually backup or root.
+
+=back
+
+It is recommended to run a test first:
+
+    cd /etc/BackupAFS
+    __INSTALLDIR__/bin/BackupAFS_migrate_populate_VolSet-List
+    backup: waiting for job termination
+    test_all:::.*:.*:test\..*\.backup::::::::::::
+
+Note that the line beginning "backup: waiting..." is on STDERR, not STDOUT. If the output looks amenable, add it to the VolumeSet-List file:
+
+    cd /etc/BackupAFS
+    __INSTALLDIR__/bin/BackupAFS_migrate_populate_VolSet-List >> VolumeSet-List
+    backup: waiting for job termination
+
+Any volsets with more than 5 volume entries will be omitted and you will be warned by BackupAFS_migrate_populate_VolSet-List. Make sure to check the results for sanity to make sure it looks correct for your cell.
+
+    cd /etc/BackupAFS
+    __INSTALLDIR__/bin/BackupAFS_migrate_populate_VolSet-List >> VolumeSet-List
+    backup: waiting for job termination
+    test1 has more than 5 volentries. Omitting "    Entry   6: server .*, partition .*, volumes: e30.*\.backup"
+    test1 has more than 5 volentries. Omitting "    Entry   7: server .*, partition .*, volumes: d70.*\.backup"
+    test1 has more than 5 volentries. Omitting "    Entry   8: server .*, partition .*, volumes: oar.*\.backup"
+    test1 has more than 5 volentries. Omitting "    Entry   9: server .*, partition .*, volumes: r90.*\.backup"
+    test2 has more than 5 volentries. Omitting "    Entry   6: server .*, partition .*, volumes: d70\..*\.backup"
+
+=head2 Unmangling the Existing Backups
+
+If you are not migrating from BackupPC4AFS, you may safely skip this section.
+
+BackupPC4AFS stored its dump data in files which had "mangled" names. Name mangling is a concept used by BackupPC (the product on which BackupPC4AFS and BackupAFS are based) to avoid namespace collisions and to allow it to store files' metadata separately from the file itself. BackupPC4AFS went with the flow and mangled filenames because the CGI interface understood mangled names by default.
+
+BackupAFS does not mangle file names. Therefore it is recommended to unmangle the existing backups to prevent confusion.
+
+Additionally, the default backup directory (datadir) in BackupPC4AFS in $Conf{TopDir}/pc. For example, /srv/BackupPC/pc. BackupAFS stores its volume backups in $Conf{TopDir}/volsets. For example, __TOPDIR__/volsets.
+
+As mentioned in the section above, BackupPC4AFS prefixed all AFS volume sets with "afs_", which was used internally to indicate to BackupPC4AFS that a specific volumeset (host) actually represented a set of volumes to dump. B<BackupAFS does NOT do this. The name of the volumeset is used as recorded in the VolumeSet-List file.> BackupAFS_migrate_unmangle_datadir renames the data directories to remove the "afs_" prefix. ($volsetname=~s^afs_//;)
+
+
+To ease migration, BackupAFS comes with a script, BackupAFS_migrate_unmangle_datadir to move any existing backups from the BackupPC4AFS directory structure and names to that expected by BackupAFS.
+
+BackupAFS_migrate_unmangle_datadir takes one argument, the defined TopDir, passed in as --topdir=path. When properly executed, the script takes no action itself. It merely outputs, to STDOUT, a bourne-shell script which contains the actions that are necessary. This gives the admin a chance to review the output for sanity prior to execution.
+
+    __INSTALLDIR__/bin/BackupAFS_migrate_unmangle_datadir --topdir=__INSTALLDIR__ >> /tmp/unmangle.sh
+    less /tmp/unmangle.sh                                                # Please review for correctness.
+    chmod u+rx /tmp/unmangle.sh
+    /tmp/unmangle.sh                                                     # This may take some time to execute.
+
+=head2 Compression of Existing Backups
+
+If you are not migrating from BackupPC4AFS, you may safely skip this section.
+
+BackupPC4AFS stored its dump data in files which were uncompressed. If available and requested, BackupAFS can compress dumps immediately after they occur in order to save disk space.
+
+The backup and restore routines know how to handle both compressed and uncompressed dumps, so it is not necessary to compress existing dumps, however it is recommended and can save considerable space (35% or more is not uncommon).
+
+If you do compress, please do so as instructed here. Manually compressing files outside of these guidelines will not store the compression statistics, and BackupAFS will not be able to accurately report compression savings.
+
+In order to facilitate compression of existing dumps, a script named BackupAFS_migrate_compress_volsets is included in the distribution. This script may be used to schedule the compression of an entire data directory or a single volumeset, to give the administrator flexibility. Compressing the entire data directory may be very time consuming, depending on the volume of existing data and the speed and quantity of processors.
+
+A real-world example: compressing 9.7TB of data (375 full dumps, 6000 incrementals), on a server with (8) 2.66GHz X5355 Xeon processors and 4GB of RAM took approximately 20 hours.
+
+BackupAFS_migrate_compress_volsets takes either 2 or 3 arguments. --datadir= and --backupuser= are mandatory. --volset is optional, and if specified will operate on only the specified volumeset. If --volset is omitted, then all volumesets will be processed.
+
+The action of the script is to locate all volume dump files (.vdmp files) for each volumeset and add them to a "NewFileList.backupnumber" file inside the volset's directory. Once the "NewFileList" file is constructed, BackupAFS can be requested to perform the compression immediately or it will be performed during the next regularly-scheduled wakeup period (along with any files backed up during that wakeup period).
+
+To compress all backups at once, an admin might do:
+
+    __INSTALLDIR__/bin/BackupAFS_migrate_compress_volsets --datadir=__TOPDIR__ --backupuser=backup
+    # Output snipped for documentation purposes, but each file found is echoed on STDOUT
+
+To compress all backups for ONLY ONE volume set, an admin might do:
+
+    __INSTALLDIR__/bin/BackupAFS_migrate_compress_volsets --datadir=__TOPDIR__ --backupuser=backup --volset=test1
+    # Output snipped for documentation purposes, but each file found is echoed on STDOUT
+
+After performing either of the above steps, to request BackupAFS perform a compression for a given volset immediately, issue the following command, substituting the name of one of your volumesets in the place of "test1" and substituting in the name of the backup user if it is not backup.
+
+    su -c "__INSTALLDIR__/bin/BackupAFS_serverMesg compress test1" backup
+    Got reply: ok
+
+The above command may be repeated for each volumeset. Additional compressions will be queued since only one compress operation may occur at any given time. Compressions scheduled via the "BackupAFS_serverMesg compress" method will show up in the CGI (in Status and Current queues) and statistics for it will be recorded in each volumeset's "backups" file.
+
+NOTE that the maximum number of pending jobs that may exist is defined by $Conf{MaxPendingCmds}. If the number of pending jobs equals or exceeds the value defined there, no new dumps will occur until the number of pending jobs decreases. Therefore you may wish to temporarily increase this number to a very high number if you wish to allow compressions to occur without hampering backups. This would be useful if the expected duration of compression is greater than your backup interval.
+
+=head1 Version Numbers
+
+Starting with v1.0.0 BackupAFS uses a X.Y.Z version numbering system.
+The first digit is for major new releases, the middle
+digit is for significant feature releases and improvements (most of
+the releases will likely be in this category), and the last digit is for
+bug fixes. You should think of the old 1.00, 1.01, 1.02 and 1.03 as
+1.0.0, 1.1.0, 1.2.0 and 1.3.0.
+
+Additionally, patches might be made available.  A patched version
+number is of the form X.Y.ZplN (eg: 2.1.0pl2), where N is the
+patch level.
+
+=head1 Author
+
+Craig Barratt  <cbarratt@users.sourceforge.net> wrote the original BackupPC documentation on which this documentation is based. Any and all subsequent modifications to this document, especially the AFS-specific parts, were written by Stephen Joyce <stephen@physics.unc.edu>. Please do not send BackupAFS questions to Mr. Barratt.
+
+See L<http://backupafs.sourceforge.net>.
+
+
+=head1 Copyright
+
+Copyright (C) 2007-2010 Stephen Joyce
+
+Copyright for portions originally from BackupPC documentation remain copyright (C) 2001-2009 Craig Barratt.
+
+=head1 Credits
+
+Craig Barratt is the primary author and developer of BackupPC, the application on which BackupAFS
+is largely based. Without BackupPC, and the fact that it is GPL'ed software, BackupAFS would not
+exist.
+
+Ryan Kucera contributed the directory navigation code and images
+for BackupPC v1.5.0.  He contributed the first skeleton of BackupPC_restore.
+He also added a significant revision to the CGI interface, including
+CSS tags, in BackupPC v2.1.0.
+
+Rich Duzenbury wrote the RSS feed option for the CGI interface.
+
+Jono Woodhouse from CapeSoft Software (www.capesoft.com) provided a
+new CSS skin for BackupPC v3.0.0 with several layout improvements.  Sean Cameron
+(also from CapeSoft) designed new and more compact file icons for BackupPC v3.0.0.
+
+Your name could appear here in the next version!
+
+=head1 License
+
+BackupAFS is based on BackupPC. BackupPC is (C) 2001-2009 Craig Barratt. BackupPC is free software, available under the GNU GPL v3 (ONLY; No other version).
+
+All portions of BackupAFS not (C) Craig Barratt are (C) 2007-2010 Stephen Joyce.
+
+B<This program (BackupAFS) is released under AGPL v3 license (no other versions).>
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of B<VERSION 3> of the GNU Affero General Public License as published by the Free Software Foundation.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License along with this program. If not, see <http://www.gnu.org/licenses/>.
+

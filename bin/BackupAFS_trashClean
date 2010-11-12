@@ -1,0 +1,60 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_trashClean: remove all the files in $TopDir/trash.
+#
+# DESCRIPTION
+#   BackupAFS_trashClean is started once by BackupAFS.  Every 5 minutes
+#   it wakes up and removes all the files or directories in $TopDir/trash.
+#   
+# AUTHOR
+#   Craig Barratt  <cbarratt@users.sourceforge.net>
+#
+# COPYRIGHT
+#   Copyright (C) 2001-2009  Craig Barratt
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my $TopDir = $bafs->TopDir();
+my $BinDir = $bafs->BinDir();
+my %Conf   = $bafs->Conf();
+
+$bafs->ChildInit();
+
+###########################################################################
+# Empty trash every so often (eg: every 5 minutes)
+###########################################################################
+while ( 1 ) {
+    print("processState running\n");
+    if ( $bafs->RmTreeTrashEmpty("$TopDir/trash") < 0 ) {
+	print("log BackupAFS_trashClean failed to empty $TopDir/trash\n");
+    }
+    print("processState idle\n");
+    sleep($Conf{TrashCleanSleepSec} || 300);
+}

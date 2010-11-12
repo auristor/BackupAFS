@@ -1,7 +1,7 @@
-#!/bin/perl
+#!/usr/bin/env perl
 #============================================================= -*-perl-*-
 #
-# configure.pl: Configuration and installation program for BackupPC
+# configure.pl: Configuration and installation program for BackupAFS
 #
 # DESCRIPTION
 #
@@ -16,15 +16,17 @@
 #   The installation steps are described as the script runs.
 #
 # AUTHOR
-#   Craig Barratt <cbarratt@users.sourceforge.net>
+#   Craig Barratt  <cbarratt@users.sourceforge.net>
+#   Stephen Joyce <stephen@physics.unc.edu>
 #
 # COPYRIGHT
-#   Copyright (C) 2001-2006  Craig Barratt
+#   Copyright (C) 2001-2009  Craig Barratt
+#   Copyright (C) 2010 Stephen Joyce
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
-#   the Free Software Foundation; either version 2 of the License, or
-#   (at your option) any later version.
+#   the Free Software Foundation; version 3 ONLY.
+#   
 #
 #   This program is distributed in the hope that it will be useful,
 #   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -37,9 +39,9 @@
 #
 #========================================================================
 #
-# Version 3.0.0, released 28 Jan 2007.
+# Version 1.0.0rc1, released 12 Nov 2010.
 #
-# See http://backuppc.sourceforge.net.
+# See http://backupafs.sourceforge.net.
 #
 #========================================================================
 
@@ -52,27 +54,27 @@ use Encode;
 my $EncodeVersion = eval($Encode::VERSION);
 if ( $EncodeVersion < 1.99 ) {
     print("Error: you need to upgrade perl's Encode package.\n"
-        . "I found $EncodeVersion and BackupPC needs >= 1.99\n"
+        . "I found $EncodeVersion and BackupAFS needs >= 1.99\n"
         . "Please go to www.cpan.org or use the cpan command.\n");
     exit(1);
 }
 
 my @Packages = qw(File::Path File::Spec File::Copy DirHandle Digest::MD5
                   Data::Dumper Getopt::Std Getopt::Long Pod::Usage
-                  BackupPC::Lib BackupPC::FileZIO);
+                  BackupAFS::Lib BackupAFS::FileZIO);
 
 foreach my $pkg ( @Packages ) {
     eval "use $pkg";
     next if ( !$@ );
-    if ( $pkg =~ /BackupPC/ ) {
+    if ( $pkg =~ /BackupAFS/ ) {
         die <<EOF;
 
 Error loading $pkg: $@
-BackupPC cannot load the package $pkg, which is included in the
-BackupPC distribution.  This probably means you did not cd to the
-unpacked BackupPC distribution before running configure.pl, eg:
+BackupAFS cannot load the package $pkg, which is included in the
+BackupAFS distribution.  This probably means you did not cd to the
+unpacked BackupAFS distribution before running configure.pl, eg:
 
-    cd BackupPC-3.0.0
+    cd BackupAFS-1.0.0rc1
     ./configure.pl
 
 Please try again.
@@ -81,8 +83,8 @@ EOF
     }
     die <<EOF;
 
-BackupPC needs the package $pkg.  Please install $pkg
-before installing BackupPC.
+BackupAFS needs the package $pkg.  Please install $pkg
+before installing BackupAFS.
 
 EOF
 }
@@ -92,11 +94,12 @@ $opts{"set-perms"} = 1;
 if ( !GetOptions(
             \%opts,
             "batch",
-            "backuppc-user=s",
+            "backupafs-user=s",
             "bin-path=s%",
             "cgi-dir=s",
             "compress-level=i",
             "config-path=s",
+            "config-override=s%",
             "config-dir=s",
             "data-dir=s",
             "dest-dir=s",
@@ -134,47 +137,28 @@ EOF
 }
 
 #
-# Whether we use the file system hierarchy conventions or not.
-# Older versions did not.  BackupPC used to be installed in
-# two main directories (in addition to CGI and html pages)
-#
-#    TopDir       which includes subdirs conf, log, pc, pool, cpool
-#                
-#    InstallDir   which includes subdirs bin, lib, doc
-#
-# With FHS enabled (which is the default for new installations)
-# the config files move to /etc/BackupPC and log files to /var/log:
-#
-#    /etc/BackupPC/config.pl  main config file (was $TopDir/conf/config.pl)
-#    /etc/BackupPC/hosts      hosts file (was $TopDir/conf/hosts)
-#    /etc/BackupPC/pc/HOST.pl per-pc config file (was $TopDir/pc/HOST/config.pl)
-#    /var/log/BackupPC        log files (was $TopDir/log)
-#    /var/log/BackupPC        Pid, status and email info (was $TopDir/log)
-#
-
-#
 # Check if this is an upgrade, in which case read the existing
 # config file to get all the defaults.
 #
 my $ConfigPath = "";
 my $ConfigFileOK = 1;
 while ( 1 ) {
-    if ( $ConfigFileOK && -f "/etc/BackupPC/config.pl" ) {
-        $ConfigPath = "/etc/BackupPC/config.pl";
+    if ( $ConfigFileOK && -f "/etc/BackupAFS/config.pl" ) {
+        $ConfigPath = "/etc/BackupAFS/config.pl";
         $opts{fhs} = 1 if ( !defined($opts{fhs}) );
         print <<EOF;
 
-Found /etc/BackupPC/config.pl, so this is an upgrade of an
-existing BackupPC installation.  We will verify some existing
+Found /etc/BackupAFS/config.pl, so this is an upgrade of an
+existing BackupAFS installation.  We will verify some existing
 information, but you will probably not need to make any
 changes - just hit ENTER to each question.
 EOF
     } else {
         print <<EOF;
 
-Is this a new installation or upgrade for BackupPC?  If this is
-an upgrade please tell me the full path of the existing BackupPC
-configuration file (eg: /etc/BackupPC/config.pl).  Otherwise, just
+Is this a new installation or upgrade for BackupAFS?  If this is
+an upgrade please tell me the full path of the existing BackupAFS
+configuration file (eg: /etc/BackupAFS/config.pl).  Otherwise, just
 hit return.
 
 EOF
@@ -202,8 +186,8 @@ $opts{fhs} = 0 if ( !defined($opts{fhs}) );
 my $bpc;
 if ( $ConfigPath ne "" && -r $ConfigPath ) {
     (my $confDir = $ConfigPath) =~ s{/[^/]+$}{};
-    die("BackupPC::Lib->new failed\n")
-            if ( !($bpc = BackupPC::Lib->new(".", ".", $confDir, 1)) );
+    die("BackupAFS::Lib->new failed\n")
+            if ( !($bpc = BackupAFS::Lib->new(".", ".", $confDir, 1)) );
     %Conf = $bpc->Conf();
     %OrigConf = %Conf;
     if ( !$opts{fhs} ) {
@@ -217,9 +201,9 @@ if ( $ConfigPath ne "" && -r $ConfigPath ) {
     if ( $err eq "" ) {
         print <<EOF;
 
-BackupPC is running on $Conf{ServerHost}.  You need to stop BackupPC
+BackupAFS is running on $Conf{ServerHost}.  You need to stop BackupAFS
 before you can upgrade the code.  Depending upon your installation,
-you could run "/etc/init.d/backuppc stop".
+you could run "/etc/init.d/backupafs stop".
 
 EOF
         exit(1);
@@ -230,10 +214,15 @@ EOF
 # Create defaults for FHS setup
 #
 if ( $opts{fhs} ) {
-    $Conf{TopDir}       ||= "/data/BackupPC";
-    $Conf{ConfDir}      ||= $opts{"config-dir"} || "/etc/BackupPC";
-    $Conf{InstallDir}   ||= "/usr/local/BackupPC";
-    $Conf{LogDir}       ||= $opts{"log-dir"} || "/var/log/BackupPC";
+    $Conf{TopDir}       ||= $opts{"data-dir"}    || "/srv/BackupAFS";
+    $Conf{ConfDir}      ||= $opts{"config-dir"}  || "/etc/BackupAFS";
+    $Conf{InstallDir}   ||= $opts{"install-dir"} || "/opt/BackupAFS";
+    $Conf{LogDir}       ||= $opts{"log-dir"}     || "/var/log/BackupAFS";
+} else {
+    $Conf{TopDir}       ||= $opts{"data-dir"}    || "/srv/BackupAFS";
+    $Conf{ConfDir}      ||= $opts{"config-dir"}  || "$Conf{TopDir}/conf";
+    $Conf{InstallDir}   ||= $opts{"install-dir"} || "/opt/BackupAFS";
+    $Conf{LogDir}       ||= $opts{"log-dir"}     || "$Conf{TopDir}/log";
 }
 
 #
@@ -241,26 +230,21 @@ if ( $opts{fhs} ) {
 #
 my %Programs = (
     perl           => "PerlPath",
-    'gtar/tar'     => "TarClientPath",
-    smbclient      => "SmbClientPath",
-    nmblookup      => "NmbLookupPath",
-    rsync          => "RsyncClientPath",
     ping           => "PingPath",
     df             => "DfPath",
     'ssh/ssh2'     => "SshPath",
     sendmail       => "SendmailPath",
     hostname       => "HostnamePath",
-    split          => "SplitPath",
-    par2           => "ParPath",
     cat            => "CatPath",
     gzip           => "GzipPath",
-    bzip2          => "Bzip2Path",
+    pigz           => "PigzPath",
+    vos            => "AfsVosPath",
 );
 
 foreach my $prog ( sort(keys(%Programs)) ) {
     my $path;
     foreach my $subProg ( split(/\//, $prog) ) {
-        $path = FindProgram("$ENV{PATH}:/bin:/usr/bin:/sbin:/usr/sbin",
+        $path = FindProgram("$ENV{PATH}:/usr/bin:/bin:/sbin:/usr/sbin",
                             $subProg) if ( !length($path) );
     }
     $Conf{$Programs{$prog}} = $path if ( !length($Conf{$Programs{$prog}}) );
@@ -289,7 +273,7 @@ my $Perl58 = system($Conf{PerlPath}
 if ( !$Perl58 ) {
     print <<EOF;
 
-BackupPC needs perl version 5.8.0 or later.  $Conf{PerlPath} appears
+BackupAFS needs perl version 5.8.0 or later.  $Conf{PerlPath} appears
 to be an older version.  Please upgrade to a newer version of perl
 and re-run this configure script.
 
@@ -299,18 +283,18 @@ EOF
 
 print <<EOF;
 
-Please tell me the hostname of the machine that BackupPC will run on.
+Please tell me the hostname of the machine that BackupAFS will run on.
 
 EOF
 chomp($Conf{ServerHost} = `$Conf{HostnamePath}`)
         if ( defined($Conf{HostnamePath}) && !defined($Conf{ServerHost}) );
-$Conf{ServerHost} = prompt("--> BackupPC will run on host",
+$Conf{ServerHost} = prompt("--> BackupAFS will run on host",
                            $Conf{ServerHost},
                            "hostname");
 
 print <<EOF;
 
-BackupPC should run as a dedicated user with limited privileges.  You
+BackupAFS should run as a dedicated user with limited privileges.  You
 need to create a user.  This user will need read/write permission on
 the main data directory and read/execute permission on the install
 directory (these directories will be setup shortly).
@@ -322,15 +306,15 @@ so group members can access backup files.
 EOF
 my($name, $passwd, $Uid, $Gid);
 while ( 1 ) {
-    $Conf{BackupPCUser} = prompt("--> BackupPC should run as user",
-                                 $Conf{BackupPCUser} || "backuppc",
-                                 "backuppc-user");
+    $Conf{BackupAFSUser} = prompt("--> BackupAFS should run as user",
+                                 $Conf{BackupAFSUser} || "backupafs",
+                                 "backupafs-user");
     if ( $opts{"set-perms"} ) {
-        ($name, $passwd, $Uid, $Gid) = getpwnam($Conf{BackupPCUser});
+        ($name, $passwd, $Uid, $Gid) = getpwnam($Conf{BackupAFSUser});
         last if ( $name ne "" );
         print <<EOF;
 
-getpwnam() says that user $Conf{BackupPCUser} doesn't exist.  Please
+getpwnam() says that user $Conf{BackupAFSUser} doesn't exist.  Please
 check the name and verify that this user is in the passwd file.
 
 EOF
@@ -342,8 +326,8 @@ EOF
 
 print <<EOF;
 
-Please specify an install directory for BackupPC.  This is where the
-BackupPC scripts, library and documentation will be installed.
+Please specify an install directory for BackupAFS.  This is where the
+BackupAFS scripts, library and documentation will be installed.
 
 EOF
 
@@ -360,7 +344,7 @@ while ( 1 ) {
 
 print <<EOF;
 
-Please specify a data directory for BackupPC.  This is where all the
+Please specify a data directory for BackupAFS.  This is where all the
 PC backup data is stored.  This file system needs to be big enough to
 accommodate all the PCs you expect to backup (eg: at least several GB
 per machine).
@@ -382,11 +366,11 @@ $Conf{CompressLevel} = $opts{"compress-level"}
                             if ( defined($opts{"compress-level"}) );
 
 if ( !defined($Conf{CompressLevel}) ) {
-    $Conf{CompressLevel} = BackupPC::FileZIO->compOk ? 3 : 0;
+    $Conf{CompressLevel} = ($Conf{PigzPath} || $Conf{GzipPath} ) ? 3 : 0;
     if ( $ConfigPath eq "" && $Conf{CompressLevel} ) {
         print <<EOF;
 
-BackupPC can compress pool files, providing around a 40% reduction in pool
+BackupAFS can compress files, providing around a 40% reduction in backup
 size (your mileage may vary). Specify the compression level (0 turns
 off compression, and 1 to 9 represent good/fastest to best/slowest).
 The recommended values are 0 (off) or 3 (reasonable compression and speed).
@@ -397,29 +381,24 @@ EOF
     } elsif ( $ConfigPath eq "" ) {
         print <<EOF;
 
-BackupPC can compress pool files, but it needs the Compress::Zlib
-package installed (see www.cpan.org). Compression will provide around a
-40% reduction in pool size, at the expense of cpu time.  You can leave
-compression off and run BackupPC without compression, in which case you
-should leave the compression level at 0 (which means off).  You could
-install Compress::Zlib and turn compression on later, but read the
-documentation first about how to do this.  Or the better choice is
-to quit, install Compress::Zlib, and re-run configure.pl.
+BackupAFS can compress files, but it needs the either the 'gzip' or 'pigz'
+package installed (see your OS docs). Compression will provide around a
+40% reduction in backup size, at the expense of cpu time.  You can leave
+compression off and run BackupAFS without compression, in which case you
+should leave the compression level at 0 (which means off).  Or the better
+choice is to quit, install 'gzip' or 'pigz', and re-run configure.pl. For
+multi-core systems, pigz (parallelized gzip algorithm) is strongly suggested.
 
 EOF
     } elsif ( $Conf{CompressLevel} ) {
         $Conf{CompressLevel} = 0;
         print <<EOF;
 
-BackupPC now supports pool file compression.  Since you are upgrading
-BackupPC you probably have existing uncompressed backups.  You have
-several choices if you want to turn on compression.  You can run
-the script BackupPC_compressPool to convert everything to compressed
-form.  Or you can simply turn on compression, so that new backups
-will be compressed.  This will increase the pool storage requirement,
-since both uncompressed and compressed copies of files will be stored.
-But eventually the old uncompressed backups will expire, recovering
-the pool storage.  Please see the documentation for more details.
+BackupAFS now supports file compression.  Since you are upgrading
+BackupAFS you probably have existing uncompressed backups.  You could
+turn on compression, so that new backups will be compressed. Eventually
+the old uncompressed backups will expire, recovering the storage.  Please
+see the documentation for more details.
 
 If you are not sure what to do, leave the Compression Level at 0,
 which disables compression.  You can always read the documentation
@@ -430,12 +409,13 @@ EOF
         $Conf{CompressLevel} = 0;
         print <<EOF;
 
-BackupPC now supports pool file compression, but it needs the
-Compress::Zlib module (see www.cpan.org).  For now, leave
-the compression level set at 0 to disable compression.  If you
-want you can install Compress::Zlib and turn compression on.
-Please see the documentation for more details about converting
-old backups to compressed form.
+BackupAFS now supports pool file compression, but it needs either
+the 'gzip' or 'pigz' package installed (see your OS docs). Compression
+will provide around a 40% reduction in backup size, at the expense of
+cpu time.  For now, leave the compression level set at 0 to disable
+compression.  If you want you can install 'gzip' or 'pigz' and turn
+compression on. For multi-core systems, pigz (parallelized gzip
+algorithm) is strongly suggested.
 
 EOF
     }
@@ -446,12 +426,26 @@ EOF
     }
 }
 
+if ($Conf{CompressLevel} && (! $Conf{PigzPath} )) {
+	print <<EOF;
+
+***
+    You have requested compression, but the 'pigz' binary was not found.
+    Gzip is single-threaded. Pigz is a multi-threaded implementation of
+    the gzip algorithm. If you have a multi-core or multi-processor system,
+    it is strongly recommended that you install pigz update the PigzPath
+    configuration variable via the CGI.
+***
+
+EOF
+}
+
 print <<EOF;
 
-BackupPC has a powerful CGI perl interface that runs under Apache.
+BackupAFS has a powerful CGI perl interface that runs under Apache.
 A single executable needs to be installed in a cgi-bin directory.
-This executable needs to run as set-uid $Conf{BackupPCUser}, or
-it can be run under mod_perl with Apache running as user $Conf{BackupPCUser}.
+This executable needs to run as set-uid $Conf{BackupAFSUser}, or
+it can be run under mod_perl with Apache running as user $Conf{BackupAFSUser}.
 
 Leave this path empty if you don't want to install the CGI interface.
 
@@ -472,13 +466,13 @@ if ( $Conf{CgiDir} ne "" ) {
 
     print <<EOF;
 
-BackupPC's CGI script needs to display various GIF images that
-should be stored where Apache can serve them.  They should be
-placed somewher under Apache's DocumentRoot.  BackupPC also
-needs to know the URL to access these images.  Example:
+BackupAFS's CGI script needs to display various PNG/GIF images that
+should be stored where Apache can serve them.  They should be placed
+somewhere under Apache's DocumentRoot.  BackupAFS also needs to know
+the URL to access these images.  Example:
 
-    Apache image directory:  /usr/local/apache/htdocs/BackupPC
-    URL for image directory: /BackupPC
+    Apache image directory:  /var/www/htdocs/BackupAFS
+    URL for image directory: /BackupAFS
 
 The URL for the image directory should start with a slash.
 
@@ -522,12 +516,13 @@ exit unless prompt("--> Do you want to continue?", "y") =~ /y/i;
 # Create install directories
 #
 foreach my $dir ( qw(bin doc
-		     lib/BackupPC/CGI
-		     lib/BackupPC/Config
-		     lib/BackupPC/Lang
-		     lib/BackupPC/Storage
-		     lib/BackupPC/Xfer
-		     lib/BackupPC/Zip
+		     lib/BackupAFS/CGI
+		     lib/BackupAFS/Config
+		     lib/BackupAFS/Lang
+		     lib/BackupAFS/Storage
+		     lib/BackupAFS/Xfer
+		     lib/BackupAFS/Zip
+                     lib/Net/FTP
 		 ) ) {
     next if ( -d "$DestDir$Conf{InstallDir}/$dir" );
     mkpath("$DestDir$Conf{InstallDir}/$dir", 0, 0755);
@@ -557,9 +552,7 @@ foreach my $dir ( ($Conf{CgiImageDir}) ) {
 #
 foreach my $dir ( (
             "$Conf{TopDir}",
-            "$Conf{TopDir}/pool",
-            "$Conf{TopDir}/cpool",
-            "$Conf{TopDir}/pc",
+            "$Conf{TopDir}/volsets",
             "$Conf{TopDir}/trash",
             "$Conf{ConfDir}",
             "$Conf{LogDir}",
@@ -575,79 +568,58 @@ foreach my $dir ( (
 
 printf("Installing binaries in $DestDir$Conf{InstallDir}/bin\n");
 foreach my $prog ( qw(
-        bin/BackupPC
-        bin/BackupPC_archive
-        bin/BackupPC_archiveHost
-        bin/BackupPC_attribPrint
-        bin/BackupPC_dump
-        bin/BackupPC_fixupBackupSummary
-        bin/BackupPC_link
-        bin/BackupPC_nightly
-        bin/BackupPC_restore
-        bin/BackupPC_sendEmail
-        bin/BackupPC_serverMesg
-        bin/BackupPC_trashClean
-        bin/BackupPC_tarExtract
-        bin/BackupPC_tarCreate
-        bin/BackupPC_tarPCCopy
-        bin/BackupPC_compressPool
-        bin/BackupPC_zipCreate
-        bin/BackupPC_zcat
-        bin/voswrap.pl
-        bin/getvols.pl
+	bin/BackupAFS
+	bin/BackupAFS_compress
+	bin/BackupAFS_dump
+	bin/BackupAFS_fixupBackupSummary
+	bin/BackupAFS_getVols
+	bin/BackupAFS_nightly
+	bin/BackupAFS_restore
+	bin/BackupAFS_sendEmail
+	bin/BackupAFS_serverMesg
+	bin/BackupAFS_tarCreate
+	bin/BackupAFS_trashClean
+	bin/BackupAFS_vosWrapper
+	bin/BackupAFS_zcat
     ) ) {
     InstallFile($prog, "$DestDir$Conf{InstallDir}/$prog", 0555);
 }
 
 printf("Installing library in $DestDir$Conf{InstallDir}/lib\n");
 foreach my $lib ( qw(
-        lib/BackupPC/Attrib.pm
-        lib/BackupPC/Config.pm
-        lib/BackupPC/FileZIO.pm
-        lib/BackupPC/Lib.pm
-        lib/BackupPC/PoolWrite.pm
-        lib/BackupPC/Storage.pm
-        lib/BackupPC/View.pm
-        lib/BackupPC/CGI/AdminOptions.pm
-        lib/BackupPC/CGI/Archive.pm
-        lib/BackupPC/CGI/ArchiveInfo.pm
-        lib/BackupPC/CGI/Browse.pm
-        lib/BackupPC/CGI/DirHistory.pm
-        lib/BackupPC/CGI/EditConfig.pm
-        lib/BackupPC/CGI/EmailSummary.pm
-        lib/BackupPC/CGI/GeneralInfo.pm
-        lib/BackupPC/CGI/HostInfo.pm
-        lib/BackupPC/CGI/Lib.pm
-        lib/BackupPC/CGI/LOGlist.pm
-        lib/BackupPC/CGI/Queue.pm
-        lib/BackupPC/CGI/ReloadServer.pm
-        lib/BackupPC/CGI/RestoreFile.pm
-        lib/BackupPC/CGI/RestoreInfo.pm
-        lib/BackupPC/CGI/Restore.pm
-        lib/BackupPC/CGI/RSS.pm
-        lib/BackupPC/CGI/StartServer.pm
-        lib/BackupPC/CGI/StartStopBackup.pm
-        lib/BackupPC/CGI/StopServer.pm
-        lib/BackupPC/CGI/Summary.pm
-        lib/BackupPC/CGI/View.pm
-        lib/BackupPC/Config/Meta.pm
-        lib/BackupPC/Lang/de.pm
-        lib/BackupPC/Lang/en.pm
-        lib/BackupPC/Lang/es.pm
-        lib/BackupPC/Lang/fr.pm
-        lib/BackupPC/Lang/it.pm
-        lib/BackupPC/Lang/nl.pm
-        lib/BackupPC/Lang/pt_br.pm
-        lib/BackupPC/Storage/Text.pm
-        lib/BackupPC/Xfer/Archive.pm
-        lib/BackupPC/Xfer/BackupPCd.pm
-        lib/BackupPC/Xfer/Smb.pm
-        lib/BackupPC/Xfer/Tar.pm
-        lib/BackupPC/Xfer/Rsync.pm
-        lib/BackupPC/Xfer/RsyncDigest.pm
-        lib/BackupPC/Xfer/RsyncFileIO.pm
-        lib/BackupPC/Xfer/Vos.pm
-        lib/BackupPC/Zip/FileMember.pm
+	lib/BackupAFS/Attrib.pm
+	lib/BackupAFS/CGI/AdminOptions.pm
+	lib/BackupAFS/CGI/Browse.pm
+	lib/BackupAFS/CGI/DirHistory.pm
+	lib/BackupAFS/CGI/EditConfig.pm
+	lib/BackupAFS/CGI/EmailSummary.pm
+	lib/BackupAFS/CGI/GeneralInfo.pm
+	lib/BackupAFS/CGI/Lib.pm
+	lib/BackupAFS/CGI/LOGlist.pm
+	lib/BackupAFS/CGI/Queue.pm
+	lib/BackupAFS/CGI/ReloadServer.pm
+	lib/BackupAFS/CGI/RestoreFile.pm
+	lib/BackupAFS/CGI/RestoreInfo.pm
+	lib/BackupAFS/CGI/Restore.pm
+	lib/BackupAFS/CGI/RSS.pm
+	lib/BackupAFS/CGI/StartServer.pm
+	lib/BackupAFS/CGI/StartStopBackup.pm
+	lib/BackupAFS/CGI/StopServer.pm
+	lib/BackupAFS/CGI/Summary.pm
+	lib/BackupAFS/CGI/View.pm
+	lib/BackupAFS/CGI/VolSetInfo.pm
+	lib/BackupAFS/Config/Meta.pm
+	lib/BackupAFS/Config.pm
+	lib/BackupAFS/FileZIO.pm
+	lib/BackupAFS/Lang/en.pm
+	lib/BackupAFS/Lib.pm
+	lib/BackupAFS/Storage.pm
+	lib/BackupAFS/Storage/Text.pm
+	lib/BackupAFS/View.pm
+	lib/BackupAFS/Xfer.pm
+	lib/BackupAFS/Xfer/Vos.pm
+	lib/Net/FTP/AutoReconnect.pm
+	lib/Net/FTP/RetrHandle.pm
     ) ) {
     InstallFile($lib, "$DestDir$Conf{InstallDir}/$lib", 0444);
 }
@@ -662,31 +634,36 @@ if ( $Conf{CgiImageDir} ne "" ) {
     #
     # Install new CSS file, making a backup copy if necessary
     #
-    my $cssBackup = "$DestDir$Conf{CgiImageDir}/BackupPC_stnd.css.pre-3.0.0";
-    if ( -f "$DestDir$Conf{CgiImageDir}/BackupPC_stnd.css" && !-f $cssBackup ) {
-	rename("$DestDir$Conf{CgiImageDir}/BackupPC_stnd.css", $cssBackup);
+    my $cssBackup = "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css.pre-1.0.0rc1";
+    if ( -f "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css" && !-f $cssBackup ) {
+	rename("$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css", $cssBackup);
     }
-    InstallFile("conf/BackupPC_stnd.css",
-	        "$DestDir$Conf{CgiImageDir}/BackupPC_stnd.css", 0444, 0);
-    InstallFile("conf/BackupPC_stnd_orig.css",
-	        "$DestDir$Conf{CgiImageDir}/BackupPC_stnd_orig.css", 0444, 0);
+    InstallFile("conf/BackupAFS_stnd.css",
+	        "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css", 0444, 0);
+    InstallFile("conf/BackupAFS_stnd_orig.css",
+	        "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd_orig.css", 0444, 0);
+    InstallFile("conf/sorttable.js",
+                "$DestDir$Conf{CgiImageDir}/sorttable.js", 0444, 0);
 }
 
 printf("Making init.d scripts\n");
-foreach my $init ( qw(gentoo-backuppc gentoo-backuppc.conf linux-backuppc
-		      solaris-backuppc debian-backuppc suse-backuppc
-		      slackware-backuppc ) ) {
+foreach my $init ( qw(gentoo-backupafs gentoo-backupafs.conf linux-backupafs
+		      solaris-backupafs debian-backupafs freebsd-backupafs
+                      suse-backupafs slackware-backupafs ) ) {
     InstallFile("init.d/src/$init", "init.d/$init", 0444);
 }
 
+printf("Making Apache configuration file for suid-perl\n");
+InstallFile("httpd/src/BackupAFS.conf", "httpd/BackupAFS.conf", 0644);
+
 printf("Installing docs in $DestDir$Conf{InstallDir}/doc\n");
-foreach my $doc ( qw(BackupPC.pod BackupPC.html) ) {
+foreach my $doc ( qw(BackupAFS.pod BackupAFS.html) ) {
     InstallFile("doc/$doc", "$DestDir$Conf{InstallDir}/doc/$doc", 0444);
 }
 
-printf("Installing config.pl and hosts in $DestDir$Conf{ConfDir}\n");
-InstallFile("conf/hosts", "$DestDir$Conf{ConfDir}/hosts", 0644)
-                    if ( !-f "$DestDir$Conf{ConfDir}/hosts" );
+printf("Installing config.pl and VolumeSet-List in $DestDir$Conf{ConfDir}\n");
+InstallFile("conf/VolumeSet-List", "$DestDir$Conf{ConfDir}/VolumeSet-List", 0644)
+                    if ( !-f "$DestDir$Conf{ConfDir}/VolumeSet-List" );
 
 #
 # Now do the config file.  If there is an existing config file we
@@ -706,34 +683,18 @@ if ( -f $dest ) {
 # Update various config parameters.  The old config is in Conf{}
 # and the new config is an array in text form in $newConf->[].
 #
-$Conf{EMailFromUserName}  ||= $Conf{BackupPCUser};
-$Conf{EMailAdminUserName} ||= $Conf{BackupPCUser};
+$Conf{EMailFromUserName}  ||= $Conf{BackupAFSUser};
+$Conf{EMailAdminUserName} ||= $Conf{BackupAFSUser};
 
 #
 # Guess $Conf{CgiURL}
 #
 if ( !defined($Conf{CgiURL}) ) {
     if ( $Conf{CgiDir} =~ m{cgi-bin(/.*)} ) {
-	$Conf{CgiURL} = "'http://$Conf{ServerHost}/cgi-bin$1/BackupPC_Admin'";
+	$Conf{CgiURL} = "'http://$Conf{ServerHost}/cgi-bin$1/BackupAFS_Admin'";
     } else {
-	$Conf{CgiURL} = "'http://$Conf{ServerHost}/cgi-bin/BackupPC_Admin'";
+	$Conf{CgiURL} = "'http://$Conf{ServerHost}/cgi-bin/BackupAFS_Admin'";
     }
-}
-
-#
-# The smbclient commands have moved from hard-coded to the config file.
-# $Conf{SmbClientArgs} no longer exists, so merge it into the new
-# commands if it still exists.
-#
-if ( defined($Conf{SmbClientArgs}) ) {
-    if ( $Conf{SmbClientArgs} ne "" ) {
-        foreach my $param ( qw(SmbClientRestoreCmd SmbClientFullCmd
-                                SmbClientIncrCmd) ) {
-            $newConf->[$newVars->{$param}]{text}
-                            =~ s/(-E\s+-N)/$1 $Conf{SmbClientArgs}/;
-        }
-    }
-    delete($Conf{SmbClientArgs});
 }
 
 #
@@ -767,28 +728,18 @@ if ( defined($Conf{RsyncLogLevel}) ) {
 }
 
 #
-# In 2.1.0 the default for $Conf{CgiNavBarAdminAllHosts} is now 1
-#
-$Conf{CgiNavBarAdminAllHosts} = 1;
-
-#
-# IncrFill should now be off
-#
-$Conf{IncrFill} = 0;
-
-#
 # Figure out sensible arguments for the ping command
 #
 if ( defined($Conf{PingArgs}) ) {
     $Conf{PingCmd} = '$pingPath ' . $Conf{PingArgs};
 } elsif ( !defined($Conf{PingCmd}) ) {
     if ( $^O eq "solaris" || $^O eq "sunos" ) {
-	$Conf{PingCmd} = '$pingPath -s $host 56 1';
+	$Conf{PingCmd} = '$pingPath -s $volset 56 1';
     } elsif ( ($^O eq "linux" || $^O eq "openbsd" || $^O eq "netbsd")
 	    && !system("$Conf{PingPath} -c 1 -w 3 localhost") ) {
-	$Conf{PingCmd} = '$pingPath -c 1 -w 3 $host';
+	$Conf{PingCmd} = '$pingPath -c 1 -w 3 $volset';
     } else {
-	$Conf{PingCmd} = '$pingPath -c 1 $host';
+	$Conf{PingCmd} = '$pingPath -c 1 $volset';
     }
     delete($Conf{PingArgs});
 }
@@ -808,14 +759,6 @@ if ( !defined($Conf{DfCmd}) ) {
 if ( defined($Conf{SmbClientTimeout}) ) {
     $Conf{ClientTimeout} = $Conf{SmbClientTimeout};
     delete($Conf{SmbClientTimeout});
-}
-
-#
-# Replace --devices with -D in RsyncArgs and RsyncRestoreArgs
-#
-foreach my $param ( qw(RsyncArgs RsyncRestoreArgs) ) {
-    next if ( !defined($newVars->{$param}) );
-    $newConf->[$newVars->{$param}]{text} =~ s/--devices/-D/g;
 }
 
 #
@@ -849,9 +792,26 @@ if ( defined($Conf{CgiUserConfigEdit}) ) {
 }
 
 #
+# Apply any command-line configuration parameter settings
+#
+foreach my $param ( keys(%{$opts{"config-override"}}) ) {
+    my $val = eval { $opts{"config-override"}{$param} };
+    if ( @$ ) {
+        printf("Can't eval --config-override setting %s=%s\n",
+                        $param, $opts{"config-override"}{$param});
+        exit(1);
+    }
+    if ( !defined($newVars->{$param}) ) {
+        printf("Unkown config parameter %s in --config-override\n", $param);
+        exit(1);
+    }
+    $newConf->[$newVars->{$param}]{text} = $opts{"config-override"}{$param};
+}
+
+#
 # Now backup and write the config file
 #
-my $confCopy = "$dest.pre-3.0.0";
+my $confCopy = "$dest.pre-1.0.0rc1";
 if ( -f $dest && !-f $confCopy ) {
     #
     # Make copy of config file, preserving ownership and modes
@@ -892,9 +852,9 @@ if ( !defined($oldConf) ) {
 }
 
 if ( $Conf{CgiDir} ne "" ) {
-    printf("Installing cgi script BackupPC_Admin in $DestDir$Conf{CgiDir}\n");
+    printf("Installing cgi script BackupAFS_Admin in $DestDir$Conf{CgiDir}\n");
     mkpath("$DestDir$Conf{CgiDir}", 0, 0755);
-    InstallFile("cgi-bin/BackupPC_Admin", "$DestDir$Conf{CgiDir}/BackupPC_Admin",
+    InstallFile("cgi-bin/BackupAFS_Admin", "$DestDir$Conf{CgiDir}/BackupAFS_Admin",
                 04554);
 }
 
@@ -908,24 +868,24 @@ will need to do:
     you will need to set \$Conf{CgiAdminUsers} so you have
     administration privileges in the CGI interface.
 
-  - Edit the list of hosts to backup in $Conf{ConfDir}/hosts.
+  - Edit the list of VolumeSets to backup in $Conf{ConfDir}/VolumeSet-List.
+    The easiest way to do this is via the CGI once you're logged in as
+    an admin user.
 
-  - Read the documentation in $Conf{InstallDir}/doc/BackupPC.html.
+  - Read the documentation in $Conf{InstallDir}/doc/BackupAFS.html.
     Please pay special attention to the security section.
 
-  - Verify that the CGI script BackupPC_Admin runs correctly.  You might
-    need to change the permissions or group ownership of BackupPC_Admin.
+  - Verify that the CGI script BackupAFS_Admin runs correctly.  You might
+    need to change the permissions or group ownership of BackupAFS_Admin.
     If this is an upgrade and you are using mod_perl, you will need
     to restart Apache.  Otherwise it will have stale code.
 
-  - BackupPC should be ready to start.  Don't forget to run it
-    as user $Conf{BackupPCUser}!  The installation also contains an
-    init.d/backuppc script that can be copied to /etc/init.d
-    so that BackupPC can auto-start on boot.  This will also enable
+  - BackupAFS should be ready to start.  Don't forget to run it
+    as user $Conf{BackupAFSUser}!  The installation also contains an
+    init.d/backupafs script that can be copied to /etc/init.d
+    so that BackupAFS can auto-start on boot.  This will also enable
     administrative users to start the server from the CGI interface.
     See init.d/README.
-
-  - To use the AFS features, be certain to read the README-AFS file.
 
 Enjoy!
 EOF
@@ -934,7 +894,7 @@ if ( `$Conf{PerlPath} -V` =~ /uselargefiles=undef/ ) {
     print <<EOF;
 
 Warning: your perl, $Conf{PerlPath}, does not support large files.
-This means BackupPC won't be able to backup files larger than 2GB.
+This means BackupAFS won't be able to backup files larger than 2GB.
 To solve this problem you should build/install a new version of perl
 with large file support enabled.  Use
 
@@ -947,7 +907,7 @@ EOF
 eval "use File::RsyncP;";
 if ( !$@ && $File::RsyncP::VERSION < 0.68 ) {
     print("\nWarning: you need to upgrade File::RsyncP;"
-        . " I found $File::RsyncP::VERSION and BackupPC needs 0.68\n");
+        . " I found $File::RsyncP::VERSION and BackupAFS needs 0.68\n");
 }
 
 exit(0);
@@ -986,8 +946,10 @@ sub InstallFile
 	    s/__TOPDIR__/$Conf{TopDir}/g;
             s/^(\s*my \$useFHS\s*=\s*)\d;/${1}$opts{fhs};/
                                     if ( $prog =~ /Lib.pm/ );
-	    s/__BACKUPPCUSER__/$Conf{BackupPCUser}/g;
+	    s/__BACKUPAFSUSER__/$Conf{BackupAFSUser}/g;
 	    s/__CGIDIR__/$Conf{CgiDir}/g;
+            s/__IMAGEDIR__/$Conf{CgiImageDir}/g;
+            s/__IMAGEDIRURL__/$Conf{CgiImageDirURL}/g;
 	    if ( $first && /^#.*bin\/perl/ ) {
 		#
 		# Fill in correct path to perl (no taint for >= 2.0.1).
@@ -1157,13 +1119,13 @@ configure.pl [options]
 
 =head1 DESCRIPTION
 
-configure.pl is a script that is used to install or upgrade a BackupPC
+configure.pl is a script that is used to install or upgrade a BackupAFS
 installation.  It is usually run interactively without arguments.  It
 also supports a batch mode where all the options can be specified
 via the command-line.
 
-For upgrading BackupPC you need to make sure that BackupPC is not
-running prior to running BackupPC.
+For upgrading BackupAFS you need to make sure that BackupAFS is not
+running prior to running BackupAFS.
 
 Typically configure.pl needs to run as the super user (root).
 
@@ -1177,14 +1139,14 @@ Run configure.pl in batch mode.  configure.pl will run without
 prompting the user.  The other command-line options are used
 to specify the settings that the user is usually prompted for.
 
-=item B<--backuppc-user=USER>
+=item B<--backupafs-user=USER>
 
-Specify the BackupPC user name that owns all the BackupPC
-files and runs the BackupPC programs.  Default is backuppc.
+Specify the BackupAFS user name that owns all the BackupAFS
+files and runs the BackupAFS programs.  Default is backupafs.
 
 =item B<--bin-path PROG=PATH>
 
-Specify the path for various external programs that BackupPC
+Specify the path for various external programs that BackupAFS
 uses.  Several --bin-path options may be specified.  configure.pl
 usually finds sensible defaults based on searching the PATH.
 The format is:
@@ -1207,31 +1169,31 @@ if Compress::Zlib is installed.
 =item B<--config-dir CONFIG_DIR>
 
 Configuration directory for new installations.  Defaults
-to /etc/BackupPC with FHS.  Automatically extracted
+to /etc/BackupAFS with FHS.  Automatically extracted
 from --config-path for existing installations.
 
 =item B<--config-path CONFIG_PATH>
 
-Path to the existing config.pl configuration file for BackupPC.
+Path to the existing config.pl configuration file for BackupAFS.
 This option should be specified for batch upgrades to an
 existing installation.  The option should be omitted when
 doing a batch new install.
 
 =item B<--cgi-dir CGI_DIR>
 
-Path to Apache's cgi-bin directory where the BackupPC_Admin
+Path to Apache's cgi-bin directory where the BackupAFS_Admin
 script will be installed.  This option only needs to be
 specified for a batch new install.
 
 =item B<--data-dir DATA_DIR>
 
-Path to the BackupPC data directory.  This is where all the backup
+Path to the BackupAFS data directory.  This is where all the backup
 data is stored, and it should be on a large file system. This option
 only needs to be specified for a batch new install.
 
 Example:
 
-    --data-dir /data/BackupPC
+    --data-dir /data/BackupAFS
 
 =item B<--dest-dir DEST_DIR>
 
@@ -1240,15 +1202,15 @@ Usually this is not needed, but certain auto-installers like
 to stage an install in a temporary directory, and then copy
 the files to their real destination.  This option can be used
 to specify the temporary directory prefix.  Note that if you
-specify this option, BackupPC won't run correctly if you try
+specify this option, BackupAFS won't run correctly if you try
 to run it from below the --dest-dir directory, since all the
-paths are set assuming BackupPC is installed in the intended
+paths are set assuming BackupAFS is installed in the intended
 final locations.
 
 =item B<--fhs>
 
 Use locations specified by the Filesystem Hierarchy Standard
-for installing BackupPC.  This is enabled by default for new
+for installing BackupAFS.  This is enabled by default for new
 installations.  To use the pre-3.0 installation locations,
 specify --no-fhs.
 
@@ -1258,43 +1220,43 @@ Print a brief help message and exits.
 
 =item B<--hostname HOSTNAME>
 
-Host name (this machine's name) on which BackupPC is being installed.
+Host name (this machine's name) on which BackupAFS is being installed.
 This option only needs to be specified for a batch new install.
 
 =item B<--html-dir HTML_DIR>
 
-Path to an Apache html directory where various BackupPC image files
+Path to an Apache html directory where various BackupAFS image files
 and the CSS files will be installed.  This is typically a directory
 below Apache's DocumentRoot directory.  This option only needs to be
 specified for a batch new install.
 
 Example:
 
-    --html-dir /usr/local/apache/htdocs/BackupPC
+    --html-dir /var/www/htdocs/BackupAFS
 
 =item B<--html-dir-url URL>
 
-The URL (without http://hostname) required to access the BackupPC html
+The URL (without http://hostname) required to access the BackupAFS html
 directory specified with the --html-dir option.  This option only needs
 to be specified for a batch new install.
 
 Example:
 
-    --html-dir-url /BackupPC
+    --html-dir-url /BackupAFS
 
 =item B<--install-dir INSTALL_DIR>
 
-Installation directory for BackupPC scripts, libraries, and
+Installation directory for BackupAFS scripts, libraries, and
 documentation.  This option only needs to be specified for a
 batch new install.
 
 Example:
 
-    --install-dir /usr/local/BackupPC
+    --install-dir /usr/local/BackupAFS
 
 =item B<--log-dir LOG_DIR>
 
-Log directory.  Defaults to /var/log/BackupPC with FHS.
+Log directory.  Defaults to /var/log/BackupAFS with FHS.
 
 =item B<--man>
 
@@ -1303,7 +1265,7 @@ Prints the manual page and exits.
 =item B<--set-perms>
 
 When installing files and creating directories, chown them to
-the BackupPC user and chmod them too.  This is enabled by default.
+the BackupAFS user and chmod them too.  This is enabled by default.
 To disable (for example, if staging a destination directory)
 then specify --no-set-perms.
 
@@ -1326,29 +1288,29 @@ questions that are normally prompted:
 
     configure.pl                                   \
         --batch                                    \
-        --cgi-dir /var/www/cgi-bin/BackupPC        \
-        --data-dir /data/BackupPC                  \
+        --cgi-dir /var/www/cgi-bin/BackupAFS        \
+        --data-dir /data/BackupAFS                  \
         --hostname myHost                          \
-        --html-dir /var/www/html/BackupPC          \
-        --html-dir-url /BackupPC                   \
-        --install-dir /usr/local/BackupPC
+        --html-dir /var/www/html/BackupAFS          \
+        --html-dir-url /BackupAFS                   \
+        --install-dir /usr/local/BackupAFS
 
 For a batch upgrade, you only need to specify the path to the
 configuration file:
         
-    configure.pl --batch --config-path /data/BackupPC/conf/config.pl
+    configure.pl --batch --config-path /data/BackupAFS/conf/config.pl
 
 =head1 AUTHOR
 
-Craig Barratt <cbarratt@users.sourceforge.net>
+Craig Barratt  <cbarratt@users.sourceforge.net>
 
 =head1 COPYRIGHT
 
-Copyright (C) 2001-2006  Craig Barratt.
+Copyright (C) 2001-2009  Craig Barratt.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
+the Free Software Foundation; version 3 ONLY.
+
 
 =cut

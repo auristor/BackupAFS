@@ -1,0 +1,75 @@
+#!/bin/sh
+
+# PROVIDE: backupafs
+# REQUIRE: DAEMON
+# BEFORE:  LOGIN
+# KEYWORD: shutdown
+
+#
+# Copy to /usr/local/etc/rc.d/backupafs and make execuatble
+#
+# Add the following line to /etc/rc.conf to enable BackupAFS:
+# backupafs_enable=(bool):   Set to "NO" by default.
+#			    Set it to "YES" to enable BackupAFS.
+#
+# Example:
+#
+#       backupafs_enable="YES"
+#
+# It accepts : start, stop, restart, reload, status
+#
+# Provided by : Gabriel Rossetti
+#
+
+. /etc/rc.subr
+
+name="backupafs"
+rcvar=`set_rcvar`
+start_cmd="backupafs_start"
+restart_cmd="backupafs_restart"
+stop_cmd="backupafs_stop"
+status_cmd="backupafs_status"
+reload_cmd="backupafs_reload"
+
+load_rc_config $name
+eval "${rcvar}=\${${rcvar}:-'NO'}"
+
+: ${backupafs_enable="NO"}
+#backupafs_enable=${backupafs_enable:-"NO"}
+
+backupafs_start()
+{
+    su backupafs -c '__INSTALLDIR__/bin/BackupAFS -d'
+    echo "${name} started"
+}
+
+backupafs_restart()
+{
+    backupafs_stop
+    sleep 1
+    backupafs_start
+}
+
+backupafs_stop()
+{
+    /usr/bin/pkill -f "__INSTALLDIR__/bin/BackupAFS -d"
+    echo "${name} stopped"
+}
+
+backupafs_status()
+{
+    if [ "`ps ax | grep "BackupAFS -d" | grep perl`" = "" ] ; then
+        echo "${name} not running"
+    else
+        echo "${name} running"
+    fi
+}    
+
+backupafs_reload()
+{
+    /usr/bin/pkill -1 -f "__INSTALLDIR__/bin/BackupAFS -d"
+    echo "${name} reloaded"
+}
+
+extra_commands="reload status"
+run_rc_command "$1"

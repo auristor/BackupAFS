@@ -1,0 +1,122 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_migrate_populate_VolSet-List: helper script for initial
+#   import of volume sets and volume entries from the native AFS backup
+#   "backup" system to BackupAFS's VolSet-List.
+#
+# DESCRIPTION
+#   This program takes no arguments.
+#
+#   This program queries the AFS backup database for a list of volume sets
+#   and for each found, a list of the volume entries contained therein.
+#   For each volumeset found, it converts the volumeset and the volume
+#   entries (up to 5) to the format that BackupAFS expects. Any volsets
+#   with 6 or more volume entries are warned, and the extra volume entries
+#   are not processed. The extra volume entries are printed on STDERR (as
+#   opposed to STDOUT).
+#
+#   This program's STDOUT can be concatenated onto the end of the distribution
+#   VolSet-List file once the admin is happy with the results.
+#
+#    BackupAFS_migrate_populate_VolSet-List >> /etc/BackupAFS/VolSet-List
+#
+#   It is advised that any volume entries which can not be processed be added
+#   to a new volume set. This may be done before or after this script is
+#   executed.
+#
+# BUGS
+#
+#   This is a quick and dirty program, to be ran once. As such, error-
+#   checking is minimal.
+#
+#   This script assumes it can use the -localauth flag for querying the
+#   AFS backup database.
+#
+# AUTHOR
+#   Stephen Joyce <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2010 Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+
+($BACKUP) = grep { -x $_ } qw( /usr/sbin/backup /usr/bin/backup /usr/afsws/etc/backup /usr/local/bin/backup /usr/bin/backup );
+$BACKUP ||= 'backup';
+
+die ("No backup binary") if ( ! -x $BACKUP);
+
+open (VS, "$BACKUP listvolsets -localauth |");
+
+my $vs=$e1s=$e1p=$e1v=$e2s=$e2p=$e2v=$e3s=$e3p=$e3v=$e4s=$e4p=$e4v=$e4s=$e5p=$e5v=undef;
+while (<VS>) {
+ chomp;
+ my $line=$_;
+ my $origline=$line;
+  if ($line=~/^$/) {
+    if ($vs && $e1s && $e1p && $e1v ) {
+      # print current values
+      print"$vs:$user:$moreUsers:$e1s:$e1p:$e1v:$e2s:$e2p:$e2v:$e3s:$e3p:$e3v:$e4s:$e4p:$e4v:$e4s:$e5p:$e5v\n";
+    }
+    # reset values
+    $vs=$e1s=$e1p=$e1v=$e2s=$e2p=$e2v=$e3s=$e3p=$e3v=$e4s=$e4p=$e4v=$e4s=$e5p=$e5v=undef;
+  }
+  if ($line=~/Volume set/) {
+    $line=~s/Volume set\s+//;
+    $line=~s/://g;
+    $vs=$line;
+  }
+  if ($line=~/Entry\s+\d:/) {
+    $line=~s/Entry\s+//;
+    my $entrynum,$sp,$vols;
+    ($entrynum,$sp,$vols)=split/:/,$line;
+    $sp=~s/\s*server\s*//g;
+    $sp=~s/\s*partition\s*//g;
+    $sp=~s/\s*volumes\s*//g;
+    $vols=~s/\s+//g;
+    if ($entrynum == 1 ) {
+        ($e1s,$e1p)=split/\,/,$sp;
+        $e1v=$vols;
+    }
+    if ($entrynum == 2 ) {
+        ($e2s,$e2p)=split/\,/,$sp;
+        $e2v=$vols;
+    }
+    if ($entrynum == 3 ) {
+        ($e3s,$e3p)=split/\,/,$sp;
+        $e3v=$vols;
+    }
+    if ($entrynum == 4 ) {
+        ($e4s,$e4p)=split/\,/,$sp;
+        $e4v=$vols;
+    }
+    if ($entrynum == 5 ) {
+        ($e5s,$e5p)=split/\,/,$sp;
+        $e5v=$vols;
+    }
+    if ($entrynum > 5 ) {
+        print STDERR "$vs has more than 5 volentries. Omitting \"$origline\"\n";
+    }
+  }
+}
+

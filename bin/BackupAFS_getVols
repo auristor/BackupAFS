@@ -1,0 +1,152 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_getVols
+#
+# DESCRIPTION
+#   Query the BackupAFS volset definition database. Construct a list of volumes
+#   that match the regexps for a given volumeset.
+#
+#   NOTE: This script assumes that it can use "-localauth", that is that
+#   the cell's keyfile is available and readable by the user running this
+#   script (normally backup or backupafs). This is a security concern!
+#   You should take pains to ensure that normal users, even those
+#   authenticated via the CGI, cannot read the keyfile. In all locations.
+#   Including the BackupAFS server's backup.
+#
+#   An alternative is ensure that the user running this script has tokens
+#   capable of accessing the backup database. In this case, "-localauth"
+#   may be removed. If you choose to do this, you're on your own.
+#
+# AUTHOR
+#   Stephen Joyce  <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2006,2010 Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+
+
+#$volset = 'panic1'; #get from @arg
+
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+my $volset = shift;
+
+($VOS) = grep { -x $_ } qw(/usr/bin/vos /usr/sbin/vos /usr/afsws/etc/vos);
+
+$VOS ||= '/usr/afsws/etc/vos';
+
+#($BACKUP) = grep { -x $_ } qw(/usr/sbin/backup /usr/afsws/etc/backup);
+
+#$BACKUP ||= '/usr/afsws/etc/backup';
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my %Conf   = $bafs->Conf();
+
+# VolSets is a list of all volsets
+$VolSets = $bafs->VolSetInfoRead($volset);
+if ( !defined($VolSets->{$volset}) ) {
+    print(STDERR "Exiting because volset $volset does not exist in the"
+               . " volsets file\n");
+    exit(1)
+}
+if ( defined(my $error = $bafs->ConfigRead($volset)) ) {
+    print("dump failed: Can't read PC's config file: $error\n");
+    exit(1);
+}
+%Conf = $bafs->Conf();
+
+my $MaxEntries=4;
+print "Querying for volumes in VolumeSet $volset\n";
+
+for ( my $i=1; $i<=$MaxEntries; $i++ ) {
+    my $serversStr="Entry".$i."_Servers";
+    my $partitionsStr="Entry".$i."_Partitions";
+    my $volumesStr="Entry".$i."_Volumes";
+    my $sre=$VolSets->{$volset}{$serversStr};
+    my $pre=$VolSets->{$volset}{$partitionsStr};
+    my $vre=$VolSets->{$volset}{$volumesStr};
+    next if (!$sre);
+    next if (!$pre);
+    next if (!$vre);
+    print "Looking for volumes matching\n server:$sre partition:$pre volume:$vre\n";
+
+	my $servers;
+	open GS,"$VOS listaddrs -localauth|" or die "cant run vos listaddrs: $!\n";
+	while (<GS>) {
+		chomp;
+		$addr=$_;
+		if ($addr=~/^$sre$/) {
+			#print "server: $addr\n";
+		} else { next; }
+
+		my $delay = $bafs->CheckVolSetAlive($addr);
+		print "ping delay to $addr: $delay\n";
+		print "WARNING: Cannot contact AFS fileserver $addr" if ( $delay < 0 );
+		if (($delay == -1 ) || ( $delay >= 10 )) {
+			print "Unacceptable ping value to $addr: $delay ms\n";
+			print "Check for deprecated servers in 'vos listaddrs'\n";
+			print "Remove old entries with 'vos changeaddr -remove'\n";
+			next;
+		}
+
+		# we have a good server... find the partitions
+		open GP,"$VOS listpart -server $addr -localauth|" or die "cant run vos listpart: $!\n";
+		while (<GP>) {
+			chomp;
+			next unless m:/vice:;
+			s/^\s+//g;
+			s/\s+$//g;
+			foreach my $partname (split) {
+				if ($partname=~/^$pre$/) {
+					#print "DEBUG partition: $partname\n";
+					#print ".";
+				} else { next; }
+			
+				# we have a partition.. get the volumes
+
+				open GV,"$VOS listvldb -server $addr -partition $partname -quiet -localauth|" or die "can't run vos listvldb: $!\n";
+				while (<GV>) {
+					chomp;
+					next if ($_=~/^\s+/);
+					next if ($_=~/^$/);
+					my $pv=$_;
+					$pv=~s/\s+$//g;
+					$pv="$pv.backup";
+					#print "debug: \"$pv\"\n";
+					next unless $pv=~/^$vre$/;
+					#print "+";
+					push (@volumes, $pv);
+				}
+
+
+			}
+
+		}
+	}
+	#print "\n";
+}
+# Uniquify the list, just in case of multihomed fileservers
+undef %saw;
+@saw{@volumes} = ();
+@ndvolumes = sort keys %saw;
+#print "VOLUMES: @ndvolumes\n";
+
+for $volume (@ndvolumes) {
+	print "VOLUME:$volume\n";
+#	system ("vos examine $volume | grep On-line");
+}

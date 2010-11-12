@@ -1,0 +1,1434 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_dump: Dump a single client.
+#
+# DESCRIPTION
+#
+#   Usage: BackupAFS_dump [-i] [-f] [-F] [-I] [-d] [-e] [-v] <client>
+#
+#   Flags:
+#
+#     -i   Do an incremental dump, overriding any scheduling (but a full
+#          dump will be done if no dumps have yet succeeded)
+#
+#     -f   Do a full dump, overriding any scheduling.
+#
+#     -I   Do an increment dump if the regular schedule requires a
+#          full or incremental, otherwise do nothing (a full is done
+#          if no dumps have yet succeeded)
+#
+#     -F   Do a full dump if the regular schedule requires a
+#          full or incremental, otherwise do nothing
+#
+#     -e   Just do an dump expiry check for the client.  Don't do anything
+#          else.  This is used periodically by BackupAFS to make sure that
+#          dhcp volsets have correctly expired old backups.  Without this,
+#          dhcp volsets that are no longer on the network will not expire
+#          old backups.
+#
+#     -v   verbose.  for manual usage: prints failure reasons in more detail.
+#
+#   BackupAFS_dump is run periodically by BackupAFS to backup $client.
+#   The file $TopDir/volsets/$client/backups is read to decide whether a
+#   full or incremental backup needs to be run.  If no backup is
+#   scheduled, or a ping to $client fails, then BackupAFS_dump quits.
+#
+#   The backup is done using the selected XferMethod (smb, tar, rsync,
+#   backupafsd etc), extracting the dump into $TopDir/volsets/$client/new.
+#   The xfer output is put into $TopDir/volsets/$client/XferLOG.
+#
+#   If the dump succeeds (based on parsing the output of the XferMethod):
+#     - $TopDir/volsets/$client/new is renamed to $TopDir/volsets/$client/nnn, where
+#           nnn is the next sequential dump number.
+#     - $TopDir/volsets/$client/XferLOG is renamed to $TopDir/volsets/$client/XferLOG.nnn.
+#     - $TopDir/volsets/$client/backups is updated.
+#
+#   If the dump fails:
+#     - $TopDir/volsets/$client/new is moved to $TopDir/trash for later removal.
+#     - $TopDir/volsets/$client/XferLOG is renamed to $TopDir/volsets/$client/XferLOG.bad
+#           for later viewing.
+#
+#   BackupAFS_dump communicates to BackupAFS via printing to STDOUT.
+#
+# AUTHOR
+#   Craig Barratt  <cbarratt@users.sourceforge.net>
+#   Stephen Joyce <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2001-2009  Craig Barratt
+#   Copyright (C) 2010 Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+use BackupAFS::FileZIO;
+use BackupAFS::Storage;
+use BackupAFS::Xfer;
+use Encode;
+use Socket;
+use File::Path;
+use File::Find;
+use Getopt::Std;
+
+###########################################################################
+# Initialize
+###########################################################################
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my $TopDir = $bafs->TopDir();
+my $BinDir = $bafs->BinDir();
+my %Conf   = $bafs->Conf();
+my $NeedPostCmd;
+my $VolSets;
+my $SigName;
+my $Abort;
+our $client;
+
+$bafs->ChildInit();
+
+my %opts;
+if ( !getopts("defivFI", \%opts) || @ARGV != 1 ) {
+    print("usage: $0 [-d] [-e] [-f] [-i] [-F] [-I] [-v] <client>\n");
+    exit(1);
+}
+if ( $ARGV[0] !~ /^([\w\.\s-]+)$/ ) {
+    print("$0: bad client name '$ARGV[0]'\n");
+    exit(1);
+}
+if ( (defined($opts{f}) + defined($opts{i}) + defined($opts{F}) + defined($opts{I})) > 1 ) {
+    print("$0: exiting because you can only use one of -f, -i, -F, and -I\n");
+    exit(1);
+}
+
+my $client = $1;   # BackupAFS's client name (might not be real volset name)
+my $volsetIP;        # this is the IP address
+my $volset;          # this is the real volset name
+
+my($clientURI, $user);
+
+$bafs->verbose(1) if ( $opts{v} );
+
+$VolSets = $bafs->VolSetInfoRead($client);
+if ( !defined($VolSets->{$client}) ) {
+    print(STDERR "Exiting because volset $client does not exist in the"
+               . " volsets file\n") if ( $opts{v} );
+    exit(1)
+}
+
+my $Dir     = "$TopDir/volsets/$client";
+my @xferPid = ();
+my $completionPercent;
+
+#
+# Re-read config file, so we can include the PC-specific config
+#
+$clientURI = $bafs->uriEsc($client);
+if ( defined(my $error = $bafs->ConfigRead($client)) ) {
+    print("dump failed: Can't read PC's config file: $error\n");
+    exit(1);
+}
+%Conf = $bafs->Conf();
+
+#
+# Catch various signals
+#
+$SIG{INT}  = \&catch_signal;
+$SIG{ALRM} = \&catch_signal;
+$SIG{TERM} = \&catch_signal;
+$SIG{PIPE} = \&catch_signal;
+$SIG{STOP} = \&catch_signal;
+$SIG{TSTP} = \&catch_signal;
+$SIG{TTIN} = \&catch_signal;
+my $Pid = $$;
+
+#
+# Make sure we eventually timeout if there is no activity from
+# the data transport program.
+#
+alarm($Conf{ClientTimeout});
+
+mkpath($Dir, 0, 0777) if ( !-d $Dir );
+if ( !-f "$Dir/LOCK" ) {
+    open(LOCK, ">", "$Dir/LOCK") && close(LOCK);
+}
+
+my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+my $logPath = sprintf("$Dir/LOG.%02d%04d", $mon + 1, $year + 1900);
+
+if ( !-f $logPath ) {
+    #
+    # Compress and prune old log files
+    #
+    my $lastLog = $Conf{MaxOldPerPCLogFiles} - 1;
+    foreach my $file ( $bafs->sortedPCLogFiles($client) ) {
+        if ( $lastLog <= 0 ) {
+            unlink($file);
+            next;
+        }
+        $lastLog--;
+        next if ( $file =~ /\.z$/ || !$Conf{CompressLevel} );
+        BackupAFS::FileZIO->compressCopy($file,
+                                        "$file.z",
+                                        undef,
+                                        $Conf{CompressLevel}, 1);
+    }
+}
+
+open(LOG, ">>", $logPath);
+select(LOG); $| = 1; select(STDOUT);
+
+#
+# For the -e option we just expire backups and quit
+#
+if ( $opts{e} ) {
+    BackupExpire($client);
+    exit(0);
+}
+
+#
+# For archive volsets we don't bother any further
+#
+if ($Conf{XferMethod} eq "archive" ) {
+    print(STDERR "Exiting because the XferMethod is set to archive\n")
+                if ( $opts{v} );
+    exit(0);
+}
+
+###########################################################################
+# Figure out what to do and do it
+###########################################################################
+
+#
+# See if we should skip this volset during a certain range
+# of times.
+#
+my $err = $bafs->ServerConnect($Conf{ServerHost}, $Conf{ServerPort});
+if ( $err ne "" ) {
+    print("Can't connect to server ($err)\n");
+    print(LOG $bafs->timeStamp, "Can't connect to server ($err)\n");
+    exit(1);
+}
+my $reply = $bafs->ServerMesg("status volset($clientURI)");
+$reply = $1 if ( $reply =~ /(.*)/s );
+my(%StatusVolSet);
+eval($reply);
+$bafs->ServerDisconnect();
+
+#
+# For DHCP tell BackupAFS which volset this is
+#
+if ( $opts{d} ) {
+    if ( $StatusVolSet{activeJob} ) {
+        # oops, something is already running for this volset
+	print(STDERR "Exiting because backup is already running for $client\n")
+			if ( $opts{v} );
+        exit(0);
+    }
+    print("DHCP $volsetIP $clientURI\n");
+}
+
+my($needLink, @Backups, $type);
+my($incrBaseTime, $incrBaseBkupNum, $incrBaseLevel, $incrLevel);
+my $lastFullTime = 0;
+my $lastIncrTime = 0;
+my $partialIdx = -1;
+my $partialNum;
+my $partialFileCnt;
+my $lastBkupNum;
+my $lastPartial = 0;
+
+#
+# Maintain backward compatibility with $Conf{FullPeriod} == -1 or -2
+# meaning disable backups
+#
+$Conf{BackupsDisable} = -$Conf{FullPeriod}
+            if ( !$Conf{BackupsDisable} && $Conf{FullPeriod} < 0 );
+
+if ( $Conf{BackupsDisable} == 1 && !$opts{f} && !$opts{i}
+        || $Conf{BackupsDisable} == 2 ) {
+    print(STDERR "Exiting because backups are disabled with"
+       . " \$Conf{BackupsDisable} = $Conf{BackupsDisable}\n") if ( $opts{v} );
+    #
+    # Tell BackupAFS to ignore old failed backups on volsets that
+    # have backups disabled.
+    #
+    print("backups disabled\n")
+		if ( defined($StatusVolSet{errorTime})
+		     && $StatusVolSet{reason} ne "Reason_backup_done"
+		     && time - $StatusVolSet{errorTime} > 4 * 24 * 3600 );
+    NothingToDo($needLink);
+}
+
+if ( !$opts{i} && !$opts{f} ) {
+    my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+    my($currHours) = $hour + $min / 60 + $sec / 3600;
+    my $blackout;
+
+    foreach my $p ( @{$Conf{BlackoutPeriods}} ) {
+        #
+        # Allow blackout to span midnight (specified by hourBegin
+        # being greater than hourEnd)
+        #
+        next if ( ref($p->{weekDays}) ne "ARRAY" 
+                    || !defined($p->{hourBegin})
+                    || !defined($p->{hourEnd})
+                );
+        my $matchWday = $wday;
+        if ( $p->{hourBegin} > $p->{hourEnd} ) {
+            $blackout = $p->{hourBegin} <= $currHours
+                          || $currHours <= $p->{hourEnd};
+            if ( $currHours <= $p->{hourEnd} ) {
+                #
+                # This is after midnight, so decrement the weekday for the
+                # weekday check (eg: Monday 11pm-1am means Monday 2300 to
+                # Tuesday 0100, not Monday 2300-2400 plus Monday 0000-0100).
+                #
+                $matchWday--;
+                $matchWday += 7 if ( $matchWday < 0 );
+            }
+        } else {
+            $blackout = $p->{hourBegin} <= $currHours
+                          && $currHours <= $p->{hourEnd};
+        }
+        if ( $blackout && grep($_ == $matchWday, @{$p->{weekDays}}) ) {
+#           print(LOG $bafs->timeStamp, "skipping because of blackout"
+#                      . " (alive $StatusVolSet{aliveCnt} times)\n");
+            print(STDERR "Skipping $client because of blackout\n")
+                            if ( $opts{v} );
+            NothingToDo($needLink);
+        }
+    }
+}
+
+if ( !$opts{i} && !$opts{f} && $StatusVolSet{backoffTime} > time ) {
+    printf(LOG "%sskipping because of user requested delay (%.1f hours left)\n",
+                $bafs->timeStamp, ($StatusVolSet{backoffTime} - time) / 3600);
+    NothingToDo($needLink);
+}
+
+#
+# Now see if there are any old backups we should delete
+#
+BackupExpire($client);
+
+my(@lastIdxByLevel, $incrCntSinceFull);
+
+#
+# Read Backup information, and find times of the most recent full and
+# incremental backups.  Also figure out which backup we will use
+# as a starting point for an incremental.
+#
+@Backups = $bafs->BackupInfoRead($client);
+for ( my $i = 0 ; $i < @Backups ; $i++ ) {
+    $needLink = 1 if ( $Backups[$i]{nFilesNew} eq ""
+                        || -f "$Dir/NewFileList.$Backups[$i]{num}" );
+    if ( $Backups[$i]{type} eq "full" ) {
+        $incrCntSinceFull = 0;
+        $lastBkupNum = $Backups[$i]{num};
+        $lastIdxByLevel[0] = $i;
+	if ( $lastFullTime < $Backups[$i]{startTime} ) {
+	    $lastFullTime = $Backups[$i]{startTime};
+	}
+    } elsif ( $Backups[$i]{type} eq "incr" ) {
+        $incrCntSinceFull++;
+        $lastBkupNum = $Backups[$i]{num};
+        $lastIdxByLevel[$Backups[$i]{level}] = $i;
+        $lastIncrTime = $Backups[$i]{startTime}
+                if ( $lastIncrTime < $Backups[$i]{startTime} );
+    } elsif ( $Backups[$i]{type} eq "partial" ) {
+        $partialIdx     = $i;
+        $lastPartial    = $Backups[$i]{startTime};
+        $partialNum     = $Backups[$i]{num};
+        $partialFileCnt = $Backups[$i]{nFiles};
+    }
+}
+
+#
+# Decide whether we do nothing, or a full or incremental backup.
+#
+my $needs_full = (time - $lastFullTime > $Conf{FullPeriod} * 24 * 3600
+               && time - $lastIncrTime > $Conf{IncrPeriod} * 24 * 3600);
+my $needs_incr = (time - $lastIncrTime > $Conf{IncrPeriod} * 24 * 3600
+               && time - $lastFullTime > $Conf{IncrPeriod} * 24 * 3600);
+
+if ( $lastFullTime == 0
+        || $opts{f}
+        || (!$opts{i} && !$opts{I} && $needs_full)
+        || ( $opts{F} && $needs_incr) ) {
+    $type = "full";
+    $incrLevel = 0;
+    $incrBaseBkupNum = $lastBkupNum;
+} elsif ( $opts{i}
+        || $needs_incr
+        || ($opts{I} && $needs_full) ) {
+    $type = "incr";
+    #
+    # For an incremental backup, figure out which level we should
+    # do and the index of the reference backup, which is the most
+    # recent backup at any lower level.
+    #
+    @{$Conf{IncrLevels}} = [$Conf{IncrLevels}]
+                            unless ref($Conf{IncrLevels}) eq "ARRAY";
+    @{$Conf{IncrLevels}} = [1] if ( !@{$Conf{IncrLevels}} );
+    $incrCntSinceFull = $incrCntSinceFull % @{$Conf{IncrLevels}};
+    $incrLevel = $Conf{IncrLevels}[$incrCntSinceFull];
+    for ( my $i = 0 ; $i < $incrLevel ; $i++ ) {
+        my $idx = $lastIdxByLevel[$i];
+        next if ( !defined($idx) );
+        if ( !defined($incrBaseTime)
+                || $Backups[$idx]{startTime} > $incrBaseTime ) {
+            $incrBaseBkupNum = $Backups[$idx]{num};
+            $incrBaseLevel   = $Backups[$idx]{level};
+            $incrBaseTime    = $Backups[$idx]{startTime};
+        }
+    }
+    #
+    # Can't find any earlier lower-level backup!  Shouldn't
+    # happen - just do full instead
+    #
+    if ( !defined($incrBaseBkupNum) || $incrLevel < 1 ) {
+        $type = "full";
+        $incrBaseBkupNum = $lastBkupNum;
+    }
+} else {
+    NothingToDo($needLink);
+}
+
+#
+# Create top-level directories if they don't exist
+#
+foreach my $dir ( (
+            "$Conf{TopDir}",
+            "$Conf{TopDir}/volsets",
+            "$Conf{TopDir}/trash",
+        ) ) {
+    next if ( -d $dir );
+    mkpath($dir, 0, 0750);
+    if ( !-d $dir ) {
+        print("Failed to create $dir\n");
+        printf(LOG "%sFailed to create directory %s\n", $bafs->timeStamp, $dir);
+        print("link $clientURI\n") if ( $needLink );
+        exit(1);
+    } else {
+        printf(LOG "%sCreated directory %s\n", $bafs->timeStamp, $dir);
+    }
+}
+
+
+    if ( $Conf{ClientNameAlias} ne "" ) {
+        $volset = $Conf{ClientNameAlias};
+    } else {
+        $volset = $client;
+    }
+        $volsetIP = $volset;
+
+
+#
+# Check if all AFS fileservers in @cell are alive.
+#
+my ($VOS) = grep { -x $_ } qw(/usr/bin/vos /usr/sbin/vos /usr/afsws/etc/vos);
+
+$VOS ||= '/usr/afsws/etc/vos';
+
+#die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+open GS,"$VOS listaddrs -localauth|" or die "cant run vos listaddrs: $!\n";
+    while (<GS>) {
+        chomp;
+        my $addr=$_;
+        next if ($addr=~/:/);
+        my $delay = $bafs->CheckVolSetAlive($addr);
+        print "ping delay to $addr: $delay\n";
+        print "Cannot contact AFS fileserver $addr\n" if ( $delay < 0 );
+        if (($delay == -1 ) || ( $delay >= 10 )) {
+                print "Unacceptable ping value to $addr: $delay ms\n";
+                print "Check for deprecated servers in 'vos listaddrs'\n";
+                print "Remove old entries with 'vos changeaddr -remove'\n";
+                #exit(1);
+	        next;
+        }
+}
+close(GS);
+
+
+#
+# Get a clean directory $Dir/new
+#
+$bafs->RmTreeDefer("$TopDir/trash", "$Dir/new") if ( -d "$Dir/new" );
+
+#
+# Setup file extension for compression and open XferLOG output file
+#
+if ( $Conf{CompressLevel} && !BackupAFS::FileZIO->compOk ) {
+    print(LOG $bafs->timeStamp, "dump failed: can't find Compress::Zlib\n");
+    print("dump failed: can't find Compress::Zlib\n");
+    exit(1);
+}
+my $fileExt = $Conf{CompressLevel} > 0 ? ".z" : "";
+my $XferLOG = BackupAFS::FileZIO->open("$Dir/XferLOG$fileExt", 1,
+                                     $Conf{CompressLevel});
+if ( !defined($XferLOG) ) {
+    print(LOG $bafs->timeStamp, "dump failed: unable to open/create"
+			     . " $Dir/XferLOG$fileExt\n");
+    print("dump failed: unable to open/create $Dir/XferLOG$fileExt\n");
+    exit(1);
+}
+
+#
+# Ignore any partial dumps
+#
+    $partialNum = undef;
+    $partialIdx = -1;
+
+$XferLOG->writeTeeStderr(1) if ( $opts{v} );
+unlink("$Dir/NewFileList") if ( -f "$Dir/NewFileList" );
+
+my $startTime     = time();
+my $tarErrs       = 0;
+my $nFilesExist   = 0;
+my $sizeExist     = 0;
+my $sizeExistComp = 0;
+my $nFilesTotal   = 0;
+my $sizeTotal     = 0;
+my($logMsg, %stat, $xfer, $ShareNames, $noFilesErr);
+my $newFilesFH;
+
+#
+# Only works for vos
+#
+    $ShareNames = $client;
+    #$ShareNames =~s/afs_//;
+    $ShareNames = [ ];
+    my $vsn = $client;
+    #$vsn=~s/^afs_//g;
+    open SN,"$Conf{InstallDir}/bin/BackupAFS_getVols $vsn|";
+    while (<SN>) {
+       chomp;
+       my $line=$_;
+       next unless ($line=~/^VOLUME:/);
+       $line=~s/^VOLUME://g;
+       push (@$ShareNames,"$line");
+       print "VOLUME:$line\n";
+    }
+    close (SN);
+
+#
+# Run an optional pre-dump command
+#
+UserCommandRun("DumpPreUserCmd");
+if ( $? && $Conf{UserCmdCheckStatus} ) {
+    print(LOG $bafs->timeStamp,
+            "DumpPreUserCmd returned error status $?... exiting\n");
+    $XferLOG->write(\"DumpPreUserCmd returned error status $?... exiting\n");
+    $stat{volsetError} = "DumpPreUserCmd returned error status $?";
+    BackupFailCleanup();
+}
+$NeedPostCmd = 1;
+
+#
+# Now backup each of the shares
+#
+my $shareDuplicate = {};
+for my $shareName ( @$ShareNames ) {
+    local(*RH, *WH);
+
+    #
+    # Convert $shareName to utf8 octets
+    #
+    $shareName = encode("utf8", $shareName);
+    $stat{xferOK} = $stat{volsetAbort} = undef;
+    $stat{volsetError} = $stat{lastOutputLine} = undef;
+    if ( $shareName eq "" ) {
+        print(LOG $bafs->timeStamp,
+                  "unexpected empty share name skipped\n");
+        next;
+    }
+    if ( $shareDuplicate->{$shareName} ) {
+        print(LOG $bafs->timeStamp,
+                  "unexpected repeated share name $shareName skipped\n");
+        next;
+    }
+    $shareDuplicate->{$shareName} = 1;
+
+    UserCommandRun("DumpPreShareCmd", $shareName);
+    if ( $? && $Conf{UserCmdCheckStatus} ) {
+        print(LOG $bafs->timeStamp,
+                "DumpPreShareCmd returned error status $?... exiting\n");
+        UserCommandRun("DumpPostUserCmd") if ( $NeedPostCmd );
+        $XferLOG->write(\"DumpPreShareCmd returned error status $?... exiting\n");
+        $stat{volsetError} = "DumpPreShareCmd returned error status $?";
+        BackupFailCleanup();
+    }
+
+    $xfer = BackupAFS::Xfer::create($Conf{XferMethod}, $bafs);
+    if ( !defined($xfer) ) {
+        my $errStr = BackupAFS::Xfer::errStr();
+        print(LOG $bafs->timeStamp, "dump failed: $errStr\n");
+        UserCommandRun("DumpPostShareCmd", $shareName) if ( $NeedPostCmd );
+        UserCommandRun("DumpPostUserCmd") if ( $NeedPostCmd );
+        $XferLOG->write(\"BackupAFS::Xfer::create failed: $errStr\n");
+        $stat{volsetError} = $errStr;
+        BackupFailCleanup();
+    }
+
+    if ( !defined($newFilesFH) ) {
+	#
+	# We need to create the NewFileList output file
+	#
+	local(*NEW_FILES);
+	open(NEW_FILES, ">", "$TopDir/volsets/$client/NewFileList")
+		     || die("can't open $TopDir/volsets/$client/NewFileList");
+	$newFilesFH = *NEW_FILES;
+	binmode(NEW_FILES);
+    }
+
+    #
+    # Run the transport program
+    #
+    $xfer->args({
+        volset         => $volset,
+        client       => $client,
+        volsetIP       => $volsetIP,
+        shareName    => $shareName,
+        pipeRH       => *RH,
+        pipeWH       => *WH,
+        XferLOG      => $XferLOG,
+	newFilesFH   => $newFilesFH,
+        outDir       => $Dir,
+        type         => $type,
+        incrBaseTime => $incrBaseTime,
+        incrLevel    => $incrLevel,
+        incrBaseBkupNum => $incrBaseBkupNum,
+	backups      => \@Backups,
+	compress     => $Conf{CompressLevel},
+	XferMethod   => $Conf{XferMethod},
+	logLevel     => $Conf{XferLogLevel},
+        partialNum   => $partialNum,
+	pidHandler   => \&pidHandler,
+	completionPercent => \&completionPercent,
+    });
+
+    if ( !defined($logMsg = $xfer->start()) ) {
+        my $errStr = "xfer start failed: " . $xfer->errStr . "\n";
+        print(LOG $bafs->timeStamp, $errStr);
+	if ( @xferPid ) {
+	    kill($bafs->sigName2num("INT"), @xferPid);
+	    sleep(1);
+	    kill($bafs->sigName2num("KILL"), @xferPid);
+	}
+	UserCommandRun("DumpPostShareCmd", $shareName) if ( $NeedPostCmd );
+	UserCommandRun("DumpPostUserCmd") if ( $NeedPostCmd );
+        $XferLOG->write(\"xfer start failed: $errStr\n");
+        $stat{volsetError} = $errStr;
+        BackupFailCleanup();
+    }
+
+    @xferPid = $xfer->xferPid;
+
+    print(LOG $bafs->timeStamp, $logMsg, "\n");
+    $XferLOG->write(\"$logMsg\n");
+    print("started $type dump, share=$shareName\n");
+
+    pidHandler(@xferPid);
+
+	#
+	# the xfer module does everything for us
+	#
+	my @results = $xfer->run();
+	$tarErrs       += $results[0];
+	$nFilesExist   += $results[1];
+	$sizeExist     += $results[2];
+	$sizeExistComp += $results[3];
+	$nFilesTotal   += $results[4];
+	$sizeTotal     += $results[5];
+
+    #
+    # Merge the xfer status (need to accumulate counts)
+    #
+    my $newStat = $xfer->getStats;
+    if ( $newStat->{fileCnt} == 0 ) {
+       $noFilesErr ||= "No files dumped for share $shareName";
+    }
+    foreach my $k ( (keys(%stat), keys(%$newStat)) ) {
+        next if ( !defined($newStat->{$k}) );
+        if ( $k =~ /Cnt$/ ) {
+            $stat{$k} += $newStat->{$k};
+            delete($newStat->{$k});
+            next;
+        }
+        if ( !defined($stat{$k}) ) {
+            $stat{$k} = $newStat->{$k};
+            delete($newStat->{$k});
+            next;
+        }
+    }
+
+    if ( $NeedPostCmd ) {
+        UserCommandRun("DumpPostShareCmd", $shareName);
+        if ( $? && $Conf{UserCmdCheckStatus} ) {
+            print(LOG $bafs->timeStamp,
+                    "DumpPostShareCmd returned error status $?... exiting\n");
+            $stat{volsetError} = "DumpPostShareCmd returned error status $?";
+        }
+    }
+
+    $stat{xferOK} = 0 if ( $stat{volsetError} || $stat{volsetAbort} );
+    if ( !$stat{xferOK} ) {
+        #
+        # kill off the transfer program, first nicely then forcefully
+        #
+	if ( @xferPid ) {
+	    kill($bafs->sigName2num("INT"), @xferPid);
+	    sleep(1);
+	    kill($bafs->sigName2num("KILL"), @xferPid);
+	}
+        #
+        # don't do any more shares on this volset
+        #
+        last;
+    }
+    #
+    # Wait for any child processes to exit
+    #
+    # 1 while ( wait() >= 0 );
+}
+
+#
+# If this is a full, and any share had zero files then consider the dump bad
+#
+if ( $type eq "full" && $stat{volsetError} eq ""
+	    && length($noFilesErr) && $Conf{BackupZeroFilesIsFatal} ) {
+    $stat{volsetError} = $noFilesErr;
+    $stat{xferOK} = 0;
+}
+
+$stat{xferOK} = 0 if ( $Abort );
+
+#
+# If there is no "new" directory then the backup is bad
+#
+if ( $stat{xferOK} && !-d "$Dir/new" ) {
+    $stat{volsetError} = "No backup directory $Dir/new"
+                            if ( $stat{volsetError} eq "" );
+    $stat{xferOK} = 0;
+}
+
+#
+# Do one last check to make sure it is still the machine we expect.
+#
+#if ( $stat{xferOK} && (my $errMsg = CorrectVolSetCheck($volsetIP, $volset)) ) {
+#    $stat{volsetError} = $errMsg;
+#    $stat{xferOK} = 0;
+#}
+
+UserCommandRun("DumpPostUserCmd") if ( $NeedPostCmd );
+if ( $? && $Conf{UserCmdCheckStatus} ) {
+    print(LOG $bafs->timeStamp,
+            "DumpPostUserCmd returned error status $?... exiting\n");
+    $stat{volsetError} = "DumpPostUserCmd returned error status $?";
+    $stat{xferOK} = 0;
+}
+close($newFilesFH) if ( defined($newFilesFH) );
+
+my $endTime = time();
+
+#
+# If the dump failed, clean up
+#
+if ( !$stat{xferOK} ) {
+    $stat{volsetError} = $stat{lastOutputLine} if ( $stat{volsetError} eq "" );
+    if ( $stat{volsetError} ) {
+        print(LOG $bafs->timeStamp,
+                  "Got fatal error during xfer ($stat{volsetError})\n");
+	$XferLOG->write(\"Got fatal error during xfer ($stat{volsetError})\n");
+    }
+    if ( !$Abort ) {
+	#
+	# wait a short while and see if the system is still alive
+	#
+	sleep(5);
+	if ( $bafs->CheckVolSetAlive($volsetIP) < 0 ) {
+	    $stat{volsetAbort} = 1;
+	}
+	if ( $stat{volsetAbort} ) {
+	    $stat{volsetError} = "lost network connection during backup";
+	}
+	print(LOG $bafs->timeStamp, "Backup aborted ($stat{volsetError})\n");
+	$XferLOG->write(\"Backup aborted ($stat{volsetError})\n");
+    } else {
+	$XferLOG->write(\"Backup aborted by user signal\n");
+    }
+
+    #
+    # Close the log file and call BackupFailCleanup, which exits.
+    #
+    BackupFailCleanup();
+}
+
+my $newNum = BackupSave();
+
+my $otherCount = $stat{xferErrCnt} - $stat{xferBadFileCnt}
+                                   - $stat{xferBadShareCnt};
+$stat{fileCnt}         ||= 0;
+$stat{byteCnt}         ||= 0;
+$stat{xferErrCnt}      ||= 0;
+$stat{xferBadFileCnt}  ||= 0;
+$stat{xferBadShareCnt} ||= 0;
+print(LOG $bafs->timeStamp,
+          "$type backup $newNum complete, $stat{fileCnt} files,"
+        . " $stat{byteCnt} bytes,"
+        . " $stat{xferErrCnt} xferErrs ($stat{xferBadFileCnt} bad files,"
+        . " $stat{xferBadShareCnt} bad shares, $otherCount other)\n");
+
+BackupExpire($client);
+
+print("$type backup complete\n");
+
+###########################################################################
+# Subroutines
+###########################################################################
+
+sub NothingToDo
+{
+    my($needLink) = @_;
+
+    print("nothing to do\n");
+    print("link $clientURI\n") if ( $needLink );
+    exit(0);
+}
+
+sub catch_signal
+{
+    my $sigName = shift;
+
+    #
+    # The first time we receive a signal we try to gracefully
+    # abort the backup.  This allows us to keep a partial dump
+    # with the in-progress file deleted and attribute caches
+    # flushed to disk etc.
+    #
+    if ( !length($SigName) ) {
+	my $reason;
+	if ( $sigName eq "INT" ) {
+	    $reason = "aborted by user (signal=$sigName)";
+	} else {
+	    $reason = "aborted by signal=$sigName";
+	}
+	if ( $Pid == $$ ) {
+	    #
+	    # Parent logs a message
+	    #
+	    print(LOG $bafs->timeStamp,
+		    "Aborting backup up after signal $sigName\n");
+
+	    #
+	    # Tell xfer to abort, but only if we actually started one
+	    #
+	    $xfer->abort($reason) if ( defined($xfer) );
+
+	    #
+	    # Schedule a 20 second timer in case the clean
+	    # abort doesn't complete
+	    #
+	    alarm(20);
+	} else {
+	    #
+	    # Children ignore anything other than ALRM and INT
+	    #
+	    if ( $sigName ne "ALRM" && $sigName ne "INT" ) {
+		return;
+	    }
+
+	    #
+	    # The child also tells xfer to abort
+	    #
+	    $xfer->abort($reason);
+
+	    #
+	    # Schedule a 15 second timer in case the clean
+	    # abort doesn't complete
+	    #
+	    alarm(15);
+	}
+	$SigName = $sigName;
+	$Abort = 1;
+	return;
+    }
+
+    #
+    # This is a second signal: time to clean up.
+    #
+    if ( $Pid != $$ && ($sigName eq "ALRM" || $sigName eq "INT") ) {
+	#
+	# Children quit quietly on ALRM or INT
+	#
+	exit(1)
+    }
+
+    #
+    # Ignore other signals in children
+    #
+    return if ( $Pid != $$ );
+
+    $SIG{$sigName} = 'IGNORE';
+    UserCommandRun("DumpPostUserCmd") if ( $NeedPostCmd );
+    $XferLOG->write(\"exiting after signal $sigName\n");
+    if ( @xferPid ) {
+        kill($bafs->sigName2num("INT"), @xferPid);
+	sleep(1);
+	kill($bafs->sigName2num("KILL"), @xferPid);
+    }
+    if ( $sigName eq "INT" ) {
+        $stat{volsetError} = "aborted by user (signal=$sigName)";
+    } else {
+        $stat{volsetError} = "received signal=$sigName";
+    }
+    BackupFailCleanup();
+}
+
+sub CheckForNewFiles
+{
+    if ( -f _ && $File::Find::name !~ /\/fattrib$/ ) {
+        $nFilesTotal++;
+    } elsif ( -d _ ) {
+	#
+	# No need to check entire tree
+	#
+        $File::Find::prune = 1 if ( $nFilesTotal );
+    }
+}
+
+sub BackupFailCleanup
+{
+    my $fileExt = $Conf{CompressLevel} > 0 ? ".z" : "";
+    my $keepPartial = 0;
+
+    #
+    # We keep this backup if it is a full and we actually backed
+    # up some files.  If the prior backup was a partial too, we
+    # only keep this backup if it has more files than the previous
+    # partial.
+    #
+    if ( $type eq "full" ) {
+	if ( $nFilesTotal == 0 && $xfer->getStats->{fileCnt} == 0 ) {
+	    #
+	    # Xfer didn't report any files, but check in the new
+	    # directory just in case.
+	    #
+	    find(\&CheckForNewFiles, "$Dir/new");
+        }
+        my $str;
+        if ( $nFilesTotal > $partialFileCnt
+                || $xfer->getStats->{fileCnt} > $partialFileCnt ) {
+            #
+            # If the last backup wasn't a partial then
+            # $partialFileCnt is undefined, so the above
+            # test is simply $nFilesTotal > 0
+            #
+	    $keepPartial = 1;
+            if ( $partialFileCnt ) {
+                $str = "Saving this as a partial backup\n";
+            } else {
+                $str = sprintf("Saving this as a partial backup, replacing the"
+                         . " prior one (got %d and %d files versus %d)\n",
+                         $nFilesTotal, $xfer->getStats->{fileCnt}, $partialFileCnt);
+            }
+	} else {
+            $str = sprintf("Not saving this as a partial backup since it has fewer"
+                     . " files than the prior one (got %d and %d files versus %d)\n",
+                     $nFilesTotal, $xfer->getStats->{fileCnt}, $partialFileCnt);
+        }
+        $XferLOG->write(\$str);
+    }
+
+        #
+        # No point in saving this dump; get rid of eveything.
+        #
+        $XferLOG->close();
+        unlink("$Dir/timeStamp.level0")    if ( -f "$Dir/timeStamp.level0" );
+        unlink("$Dir/SmbLOG.bad")          if ( -f "$Dir/SmbLOG.bad" );
+        unlink("$Dir/SmbLOG.bad$fileExt")  if ( -f "$Dir/SmbLOG.bad$fileExt" );
+        unlink("$Dir/XferLOG.bad")         if ( -f "$Dir/XferLOG.bad" );
+        unlink("$Dir/XferLOG.bad$fileExt") if ( -f "$Dir/XferLOG.bad$fileExt" );
+        unlink("$Dir/NewFileList")         if ( -f "$Dir/NewFileList" );
+        rename("$Dir/XferLOG$fileExt", "$Dir/XferLOG.bad$fileExt");
+        $bafs->RmTreeDefer("$TopDir/trash", "$Dir/new") if ( -d "$Dir/new" );
+        print("dump failed: $stat{volsetError}\n");
+        $XferLOG->close();
+        print("link $clientURI\n") if ( $needLink );
+        exit(1);
+}
+
+#
+# Decide which old backups should be expired by moving them
+# to $TopDir/trash.
+#
+sub BackupExpire
+{
+    my($client) = @_;
+    my($Dir) = "$TopDir/volsets/$client";
+    my(@Backups) = $bafs->BackupInfoRead($client);
+    my($cntFull, $cntIncr, $firstFull, $firstIncr, $oldestIncr,
+       $oldestFull, $changes);
+
+    if ( $Conf{FullKeepCnt} <= 0 ) {
+        print(LOG $bafs->timeStamp,
+                  "Invalid value for \$Conf{FullKeepCnt}=$Conf{FullKeepCnt}\n");
+	print(STDERR
+            "Invalid value for \$Conf{FullKeepCnt}=$Conf{FullKeepCnt}\n")
+			    if ( $opts{v} );
+        return;
+    }
+    while ( 1 ) {
+	$cntFull = $cntIncr = 0;
+	$oldestIncr = $oldestFull = 0;
+	for ( my $i = 0 ; $i < @Backups ; $i++ ) {
+	    if ( $Backups[$i]{type} eq "full" ) {
+		$firstFull = $i if ( $cntFull == 0 );
+		$cntFull++;
+	    } elsif ( $Backups[$i]{type} eq "incr" ) {
+		$firstIncr = $i if ( $cntIncr == 0 );
+		$cntIncr++;
+	    }
+	}
+	$oldestIncr = (time - $Backups[$firstIncr]{startTime}) / (24 * 3600)
+                        if ( $cntIncr > 0 );
+	$oldestFull = (time - $Backups[$firstFull]{startTime}) / (24 * 3600)
+                        if ( $cntFull > 0 );
+
+        #
+        # With multi-level incrementals, several of the following
+        # incrementals might depend upon this one, so we have to
+        # delete all of the them.  Figure out if that is possible
+        # by counting the number of consecutive incrementals that
+        # are unfilled and have a level higher than this one.
+        #
+        my $cntIncrDel = 1;
+        my $earliestIncr = $oldestIncr;
+
+	for ( my $i = $firstIncr + 1 ; $i < @Backups ; $i++ ) {
+            last if ( $Backups[$i]{level} <= $Backups[$firstIncr]{level}
+                   || !$Backups[$i]{noFill} );
+            $cntIncrDel++;
+            $earliestIncr = (time - $Backups[$i]{startTime}) / (24 * 3600);
+        }
+
+	if ( $cntIncr >= $Conf{IncrKeepCnt} + $cntIncrDel
+		|| ($cntIncr >= $Conf{IncrKeepCntMin} + $cntIncrDel
+		    && $earliestIncr > $Conf{IncrAgeMax}) ) {
+            #
+            # Only delete an incr backup if the Conf settings are satisfied
+            # for all $cntIncrDel incrementals.  Since BackupRemove() does
+            # a splice() we need to do the deletes in the reverse order.
+            # 
+            for ( my $i = $firstIncr + $cntIncrDel - 1 ;
+                    $i >= $firstIncr ; $i-- ) {
+                print(LOG $bafs->timeStamp,
+                          "removing incr backup $Backups[$i]{num}\n");
+                BackupRemove($client, \@Backups, $i);
+                $changes++;
+            }
+            next;
+        }
+
+        #
+        # Delete any old full backups, according to $Conf{FullKeepCntMin}
+	# and $Conf{FullAgeMax}.
+        #
+	# First make sure that $Conf{FullAgeMax} is at least bigger
+	# than $Conf{FullPeriod} * $Conf{FullKeepCnt}, including
+	# the exponential array case.
+        #
+	my $fullKeepCnt = $Conf{FullKeepCnt};
+	$fullKeepCnt = [$fullKeepCnt] if ( ref($fullKeepCnt) ne "ARRAY" );
+	my $fullAgeMax;
+	my $fullPeriod = int(0.5 + $Conf{FullPeriod});
+        $fullPeriod = 7 if ( $fullPeriod <= 0 );
+	for ( my $i = 0 ; $i < @$fullKeepCnt ; $i++ ) {
+	    $fullAgeMax += $fullKeepCnt->[$i] * $fullPeriod;
+	    $fullPeriod *= 2;
+	}
+	$fullAgeMax += $fullPeriod;	# add some buffer
+
+        if ( $cntFull > $Conf{FullKeepCntMin}
+               && $oldestFull > $Conf{FullAgeMax}
+               && $oldestFull > $fullAgeMax
+	       && $Conf{FullKeepCntMin} > 0
+	       && $Conf{FullAgeMax} > 0
+               && (@Backups <= $firstFull + 1
+                        || !$Backups[$firstFull + 1]{noFill}) ) {
+            #
+            # Only delete a full backup if the Conf settings are satisfied.
+            # We also must make sure that either this backup is the most
+            # recent one, or the next backup is filled.
+            # (We can't deleted a full backup if the next backup is not
+            # filled.)
+            # 
+	    print(LOG $bafs->timeStamp,
+                   "removing old full backup $Backups[$firstFull]{num}\n");
+            BackupRemove($client, \@Backups, $firstFull);
+            $changes++;
+            next;
+        }
+
+        #
+        # Do new-style full backup expiry, which includes the the case
+	# where $Conf{FullKeepCnt} is an array.
+        #
+        last if ( !BackupFullExpire($client, \@Backups) );
+        $changes++;
+    }
+    $bafs->BackupInfoWrite($client, @Backups) if ( $changes );
+}
+
+#
+# Handle full backup expiry, using exponential periods.
+#
+sub BackupFullExpire
+{
+    my($client, $Backups) = @_;
+    my $fullCnt = 0;
+    my $fullPeriod = $Conf{FullPeriod};
+    my $origFullPeriod = $fullPeriod;
+    my $fullKeepCnt = $Conf{FullKeepCnt};
+    my $fullKeepIdx = 0;
+    my(@delete, @fullList);
+
+    #
+    # Don't delete anything if $Conf{FullPeriod} or $Conf{FullKeepCnt} are
+    # not defined - possibly a corrupted config.pl file.
+    #
+    return if ( !defined($Conf{FullPeriod}) || !defined($Conf{FullKeepCnt}) );
+
+    #
+    # If regular backups are still disabled with $Conf{FullPeriod} < 0,
+    # we still expire backups based on a typical FullPeriod value - weekly.
+    #
+    $fullPeriod = 7 if ( $fullPeriod <= 0 );
+
+    $fullKeepCnt = [$fullKeepCnt] if ( ref($fullKeepCnt) ne "ARRAY" );
+
+    for ( my $i = 0 ; $i < @$Backups ; $i++ ) {
+        next if ( $Backups->[$i]{type} ne "full" );
+        push(@fullList, $i);
+    }
+    for ( my $k = @fullList - 1 ; $k >= 0 ; $k-- ) {
+        my $i = $fullList[$k];
+        my $prevFull = $fullList[$k-1] if ( $k > 0 );
+        #
+        # Don't delete any full that is followed by an unfilled backup,
+        # since it is needed for restore.
+        #
+        my $noDelete = $i + 1 < @$Backups ? $Backups->[$i+1]{noFill} : 0;
+
+        if ( !$noDelete && 
+              ($fullKeepIdx >= @$fullKeepCnt
+              || $k > 0
+                 && $fullKeepIdx > 0
+                 && $Backups->[$i]{startTime} - $Backups->[$prevFull]{startTime}
+                             < ($fullPeriod - $origFullPeriod / 2) * 24 * 3600
+               )
+            ) {
+            #
+            # Delete the full backup
+            #
+            #print("Deleting backup $i ($prevFull)\n");
+            unshift(@delete, $i);
+        } else {
+            $fullCnt++;
+            while ( $fullKeepIdx < @$fullKeepCnt
+                     && $fullCnt >= $fullKeepCnt->[$fullKeepIdx] ) {
+                $fullKeepIdx++;
+                $fullCnt = 0;
+                $fullPeriod = 2 * $fullPeriod;
+            }
+        }
+    }
+    #
+    # Now actually delete the backups
+    #
+    for ( my $i = @delete - 1 ; $i >= 0 ; $i-- ) {
+        print(LOG $bafs->timeStamp,
+               "removing full backup $Backups->[$delete[$i]]{num}\n");
+        BackupRemove($client, $Backups, $delete[$i]);
+    }
+    return @delete;
+}
+
+#
+# Removes any partial backups
+#
+sub BackupPartialRemove
+{
+    my($client, $Backups) = @_;
+
+    for ( my $i = @$Backups - 1 ; $i >= 0 ; $i-- ) {
+        next if ( $Backups->[$i]{type} ne "partial" );
+        BackupRemove($client, $Backups, $i);
+    }
+}
+
+sub BackupSave
+{
+    my @Backups = $bafs->BackupInfoRead($client);
+    my $num  = -1;
+    my $newFilesFH;
+
+    #
+    # Since we got a good backup we should remove any partial dumps
+    # (the new backup might also be a partial, but that's ok).
+    #
+    BackupPartialRemove($client, \@Backups);
+    $needLink = 1 if ( -f "$Dir/NewFileList" );
+
+    #
+    # Number the new backup
+    #
+    for ( my $i = 0 ; $i < @Backups ; $i++ ) {
+        $num = $Backups[$i]{num} if ( $num < $Backups[$i]{num} );
+    }
+    $num++;
+    $bafs->RmTreeDefer("$TopDir/trash", "$Dir/$num") if ( -d "$Dir/$num" );
+    if ( !rename("$Dir/new", "$Dir/$num") ) {
+        print(LOG $bafs->timeStamp, "Rename $Dir/new -> $Dir/$num failed\n");
+        $stat{xferOK} = 0;
+        return;
+    }
+
+    #
+    # Add the new backup information to the backup file
+    #
+    my $i = @Backups;
+    $Backups[$i]{num}           = $num;
+    $Backups[$i]{type}          = $type;
+    $Backups[$i]{startTime}     = $startTime;
+    $Backups[$i]{endTime}       = $endTime;
+    $Backups[$i]{size}          = $sizeTotal;
+    $Backups[$i]{nFiles}        = $nFilesTotal;
+    $Backups[$i]{xferErrs}      = $stat{xferErrCnt} || 0;
+    $Backups[$i]{xferBadFile}   = $stat{xferBadFileCnt} || 0;
+    $Backups[$i]{xferBadShare}  = $stat{xferBadShareCnt} || 0;
+    $Backups[$i]{nFilesExist}   = $nFilesExist;
+    $Backups[$i]{sizeExist}     = $sizeExist;
+    $Backups[$i]{sizeExistComp} = $sizeExistComp;
+    $Backups[$i]{tarErrs}       = $tarErrs;
+    $Backups[$i]{compress}      = $Conf{CompressLevel};
+    $Backups[$i]{noFill}        = $type eq "incr" ? 1 : 0;
+    $Backups[$i]{level}         = $incrLevel;
+    $Backups[$i]{mangle}        = 0;     # name mangling always off for BackupAFS
+    $Backups[$i]{xferMethod}    = $Conf{XferMethod};
+    $Backups[$i]{charset}       = $Conf{ClientCharset};
+    $Backups[$i]{version}       = $bafs->Version();
+    #
+    # Save the main backups file
+    #
+    $bafs->BackupInfoWrite($client, @Backups);
+    #
+    # Save just this backup's info in case the main backups file
+    # gets corrupted
+    #
+    BackupAFS::Storage->backupInfoWrite($Dir, $Backups[$i]{num},
+                                             $Backups[$i]);
+
+    unlink("$Dir/timeStamp.level0") if ( -f "$Dir/timeStamp.level0" );
+    foreach my $ext ( qw(bad bad.z) ) {
+	next if ( !-f "$Dir/XferLOG.$ext" );
+	unlink("$Dir/XferLOG.$ext.old") if ( -f "$Dir/XferLOG.$ext" );
+	rename("$Dir/XferLOG.$ext", "$Dir/XferLOG.$ext.old");
+    }
+
+    #
+    # Now remove the bad files, replacing them if possible with links to
+    # earlier backups.
+    #
+    foreach my $f ( $xfer->getBadFiles ) {
+	my $j;
+	my $shareM = $bafs->fileNameEltMangle($f->{share});
+	my $fileM  = $bafs->fileNameMangle($f->{file});
+	unlink("$Dir/$num/$shareM/$fileM");
+	for ( $j = $i - 1 ; $j >= 0 ; $j-- ) {
+	    my $file;
+	    if ( $Backups[$j]{mangle} ) {
+		$file = "$shareM/$fileM";
+	    } else {
+		$file = "$f->{share}/$f->{file}";
+	    }
+	    next if ( !-f "$Dir/$Backups[$j]{num}/$file" );
+
+            my($exists, $digest, $origSize, $outSize, $errs)
+                                = BackupAFS::PoolWrite::LinkOrCopy(
+                                      $bafs,
+                                      "$Dir/$Backups[$j]{num}/$file",
+                                      $Backups[$j]{compress},
+                                      "$Dir/$num/$shareM/$fileM",
+                                      $Conf{CompressLevel});
+            if ( !$exists ) {
+                #
+                # the hard link failed, most likely because the target
+                # file has too many links.  We have copied the file
+                # instead, so add this to the new file list.
+                #
+                if ( !defined($newFilesFH) ) {
+                    my $str = "Appending to NewFileList for $shareM/$fileM\n";
+                    $XferLOG->write(\$str);
+                    open($newFilesFH, ">>", "$TopDir/volsets/$client/NewFileList")
+                         || die("can't open $TopDir/volsets/$client/NewFileList");
+                    binmode($newFilesFH);
+                }
+                if ( -f "$Dir/$num/$shareM/$fileM" ) {
+                    print($newFilesFH "$digest $origSize $shareM/$fileM\n");
+                } else {
+                    my $str = "Unable to link/copy $num/$f->{share}/$f->{file}"
+                            . " to $Backups[$j]{num}/$f->{share}/$f->{file}\n";
+                    $XferLOG->write(\$str);
+                }
+	    } else {
+		my $str = "Bad file $num/$f->{share}/$f->{file} replaced"
+                        . " by link to"
+                        . " $Backups[$j]{num}/$f->{share}/$f->{file}\n";
+		$XferLOG->write(\$str);
+	    }
+	    last;
+	}
+	if ( $j < 0 ) {
+	    my $str = "Removed bad file $num/$f->{share}/$f->{file}"
+                    . " (no older copy to link to)\n";
+	    $XferLOG->write(\$str);
+	}
+    }
+    close($newFilesFH) if ( defined($newFilesFH) );
+    $XferLOG->close();
+    rename("$Dir/XferLOG$fileExt", "$Dir/XferLOG.$num$fileExt");
+    rename("$Dir/NewFileList", "$Dir/NewFileList.$num");
+    return $num;
+}
+
+#
+# Removes a specific backup
+#
+sub BackupRemove
+{
+    my($client, $Backups, $idx) = @_;
+    my($Dir) = "$TopDir/volsets/$client";
+
+    if ( $Backups->[$idx]{num} eq "" ) {
+        print("BackupRemove: ignoring empty backup number for idx $idx\n");
+        return;
+    }
+
+    $bafs->RmTreeDefer("$TopDir/trash",
+                      "$Dir/$Backups->[$idx]{num}");
+    unlink("$Dir/SmbLOG.$Backups->[$idx]{num}")
+                if ( -f "$Dir/SmbLOG.$Backups->[$idx]{num}" );
+    unlink("$Dir/SmbLOG.$Backups->[$idx]{num}.z")
+                if ( -f "$Dir/SmbLOG.$Backups->[$idx]{num}.z" );
+    unlink("$Dir/XferLOG.$Backups->[$idx]{num}")
+                if ( -f "$Dir/XferLOG.$Backups->[$idx]{num}" );
+    unlink("$Dir/XferLOG.$Backups->[$idx]{num}.z")
+                if ( -f "$Dir/XferLOG.$Backups->[$idx]{num}.z" );
+    splice(@{$Backups}, $idx, 1);
+}
+
+#
+# The Xfer method might tell us from time to time about processes
+# it forks.  We tell BackupAFS about this (for status displays) and
+# keep track of the pids in case we cancel the backup
+#
+sub pidHandler
+{
+    @xferPid = @_;
+    @xferPid = grep(/./, @xferPid);
+    return if ( !@xferPid );
+    my @pids = @xferPid;
+    my $str = join(",", @pids);
+    $XferLOG->write(\"Xfer PIDs are now $str\n") if ( defined($XferLOG) );
+    print("xferPids $str\n");
+}
+
+#
+# The Xfer method might tell us from time to time about progress
+# in the backup or restore
+#
+sub completionPercent
+{
+    my($percent) = @_;
+
+    $percent = 100 if ( $percent > 100 );
+    $percent =   0 if ( $percent <   0 );
+    if ( !defined($completionPercent)
+        || int($completionPercent + 0.5) != int($percent) ) {
+            printf("completionPercent %.0f\n", $percent);
+    }
+    $completionPercent = $percent;
+}
+
+#
+# Run an optional pre- or post-dump command
+#
+sub UserCommandRun
+{
+    my($cmdType, $sharename) = @_;
+
+    return if ( !defined($Conf{$cmdType}) );
+    my $vars = {
+        xfer       => $xfer,
+        client     => $client,
+        volset       => $volset,
+        volsetIP     => $volsetIP,
+	user       => $VolSets->{$client}{user},
+	moreUsers  => $VolSets->{$client}{moreUsers},
+        share      => $ShareNames->[0],
+        shares     => $ShareNames,
+        XferMethod => $Conf{XferMethod},
+        afsbackupPath => $Conf{SshPath},
+        sshPath    => $Conf{SshPath},
+        LOG        => *LOG,
+        XferLOG    => $XferLOG,
+        stat       => \%stat,
+        xferOK     => $stat{xferOK} || 0,
+	volsetError  => $stat{volsetError},
+	type	   => $type,
+	cmdType	   => $cmdType,
+    };
+
+    if ($cmdType eq 'DumpPreShareCmd' || $cmdType eq 'DumpPostShareCmd') {
+	$vars->{share} = $sharename;
+    }
+
+    my $cmd = $bafs->cmdVarSubstitute($Conf{$cmdType}, $vars);
+    $XferLOG->write(\"Executing $cmdType: @$cmd\n");
+    #
+    # Run the user's command, dumping the stdout/stderr into the
+    # Xfer log file.  Also supply the optional $vars and %Conf in
+    # case the command is really perl code instead of a shell
+    # command.
+    #
+    $bafs->cmdSystemOrEval($cmd,
+	    sub {
+		$XferLOG->write(\$_[0]);
+                print(LOG $bafs->timeStamp, "Output from $cmdType: ", $_[0]);
+	    },
+	    $vars, \%Conf);
+}

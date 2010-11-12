@@ -1,0 +1,298 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_compress: compress new backups
+#
+# DESCRIPTION
+#
+#   BackupAFS_compress inspects every file in a new backup and
+#   attempts to compress it.
+#
+# AUTHOR
+#   Stephen Joyce  <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2001-2009  Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0, released 12 Nov 2010.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+use BackupAFS::Attrib;
+#use BackupAFS::PoolWrite;
+use BackupAFS::Storage;
+
+use File::Find;
+use File::Path;
+use Digest::MD5;
+
+our ($num);
+
+###########################################################################
+# Initialize
+###########################################################################
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my $TopDir = $bafs->TopDir();
+my $BinDir = $bafs->BinDir();
+my %Conf   = $bafs->Conf();
+
+$bafs->ChildInit();
+
+if ( @ARGV != 1 ) {
+    print("usage: $0 <volset>\n");
+    exit(1);
+}
+if ( $ARGV[0] !~ /^([\w\.\s-]+)$/ ) {
+    print("$0: bad volset name '$ARGV[0]'\n");
+    exit(1);
+}
+my $volset = $1;
+my $Dir  = "$TopDir/volsets/$volset";
+my($CurrDumpDir, $Compress);
+
+#
+# Re-read config file, so we can include the PC-specific config
+#
+$bafs->ConfigRead($volset);  
+%Conf = $bafs->Conf();
+my $CompressLevel = $Conf{CompressLevel}>0 ? $Conf{CompressLevel} :  "3";
+
+
+###########################################################################
+# Process any backups that haven't been compressed
+###########################################################################
+my $md5 = Digest::MD5->new;
+my($nFilesNew, $sizeNew, $sizeNewComp);
+my($nFilesExist, $sizeExist, $sizeExistComp);
+my($noFill,$fillFromNum);
+#while ( 1 ) {
+print "-------\nStarted $0 for $1\n";
+    my @Backups = $bafs->BackupInfoRead($volset);
+    
+    for ( $num = 0 ; $num < @Backups ; $num++ ) {
+    $nFilesNew = $sizeNew = $sizeNewComp = 0;
+    $noFill = $fillFromNum = 0;
+    $nFilesExist = $sizeExist = $sizeExistComp = 0;
+    #$num;
+        #print "num: $num, NFL: $Dir/NewFileList.$Backups[$num]{num}\n";
+        #last if ( $Backups[$num]{nFilesNew} eq ""
+        if (-f "$Dir/NewFileList.$Backups[$num]{num}" ) {
+            #CompressNewFile("$Dir/NewFileList.$Backups[$num]{num}", $num);
+    #
+    # Process list of new files left by BackupAFS_dump
+    #
+#print "foo $num\n";
+    $CurrDumpDir = "$Dir/$Backups[$num]{num}";
+    $Compress = $Backups[$num]{compress};
+    #print  "XXX: $Dir/NewFileList.$Backups[$num]{num}\n";
+    if ( open(NEW, "<", "$Dir/NewFileList.$Backups[$num]{num}") ) {
+#print "bar\n";
+        #my(@shareAttribArgs);
+	binmode(NEW);
+        while ( <NEW> ) {
+            chomp;
+            #print "$_\n";
+            #next if ( !/(\w+) (\d+) (.*)/ );
+            my $cfile=$_;
+            CompressNewFile("$cfile", $Backups[$num]{num});
+        }
+        #CompressNewFile(@shareAttribArgs) if ( @shareAttribArgs );
+        close(NEW);
+    unlink("$Dir/NewFileList.$Backups[$num]{num}")
+                if ( -f "$Dir/NewFileList.$Backups[$num]{num}" );
+    }
+	}
+#last if ( $num > @Backups );
+#}
+
+    #
+    # Update the backup info file in $TopDir/volsets/$volset/backups
+    #
+    @Backups = ();
+    @Backups = $bafs->BackupInfoRead($volset);
+    #$Backups[$num]{nFilesExist}   += $nFilesExist;
+    #$Backups[$num]{sizeExist}     += $sizeExist;
+    #$Backups[$num]{sizeExistComp} += $sizeExistComp;
+    #$Backups[$num]{nFilesNew}     += $nFilesNew;
+    #$Backups[$num]{sizeNew}       += $sizeNew;
+    #$Backups[$num]{sizeNewComp}   += $sizeNewComp;
+    #$Backups[$num]{noFill}         = $noFill;
+    #$Backups[$num]{fillFromNum}    = $fillFromNum;
+    $Backups[$num]{nFilesExist}   = 0;
+    $Backups[$num]{sizeExist}     = 0;
+    $Backups[$num]{sizeExistComp} = 0;
+    $Backups[$num]{nFilesNew}     += $nFilesNew;
+    $Backups[$num]{sizeNew}       += $sizeNew;
+    $Backups[$num]{sizeNewComp}   += $sizeNewComp;
+    $Backups[$num]{noFill}         = 0;
+    $Backups[$num]{fillFromNum}    = 0;
+    $Backups[$num]{compress}	  = $CompressLevel;
+    #
+    # Save just this backup's info in case the main backups file
+    # gets corrupted
+    #
+    BackupAFS::Storage->backupInfoWrite($Dir,
+                                       $Backups[$num]{num},
+                                       $Backups[$num], 1);
+    #
+    # Save the main backups file
+    #
+    $bafs->BackupInfoWrite($volset, @Backups);
+} #end for loop
+print "Finished $0 for $1\n-------\n";
+exit 0;
+
+###########################################################################
+# Subroutines
+###########################################################################
+
+#
+# Compress a new file
+#
+sub CompressNewFile
+{
+    my($fileName,$num) = @_;
+    #print "DEBUG: filename $fileName num $num\n";
+    my $res = Compress($fileName,$num);
+    if ($res == 0 ) {
+         #$sizeNew += $size;
+         #$sizeNewComp += -s $fileName;
+         print "Successfully compressed $fileName\n";
+       } else {
+        print("\nError $res while attempting to\n"
+             . " compress $fileName\nin $0\n\n");
+    }
+
+}
+
+sub Compress
+{
+    #my $gzip = "/bin/gzip";
+    my $CompressBin = undef;
+    if (defined($Conf{PigzPath})
+	&& ( -x "$Conf{PigzPath}" )) {
+		$CompressBin = $Conf{PigzPath};
+		if ($Conf{PigzThreads} > 0 ) {
+			$CompressBin .= " --processes " . $Conf{PigzThreads};
+		}
+    }
+    if ( (!defined($CompressBin))
+	&& defined($Conf{GzipPath})
+	&& ( -x "$Conf{GzipPath}" )) {
+		$CompressBin = $Conf{GzipPath};
+    }
+    if ( ! defined($CompressBin)) {
+        print "No compression defined. At least one of PigzPath, GzipPath must be defined.\n";
+	return 1;
+    }
+
+    #my $gzip = "/usr/bin/pigz";
+    my $CompressLevel = $Conf{CompressLevel}>0 ? $Conf{CompressLevel} :  "3";
+    #print "Compressing using $CompressBin -$CompressLevel.\n";
+    my($file,$num) = @_;
+
+    print "Compressing $file\n";
+    #return 0;
+    #if (! -x $CompressBin ) {
+    #	print("\nCould not find compression executable in $0.\n\n");
+    #	return 1;
+    #}
+    if (! -e $file) {
+	my $efile=$file;
+        $file=~s/\/new\//\/$num\//;
+        if (! -e $file) {
+           print("\nCould not find $efile\n");
+           print("or $file referenced in NewFileList.\n\n");
+	return 1;
+        }
+    }
+    my $size = getSize($file);
+    print "Original size is $size bytes.\n";
+    #print "Spawning $gzip...\n";
+    #open GZIP,"/usr/bin/time -p $gzip -v -$CompressLevel $file 2>&1 |";
+    #print "executing /usr/bin/time -f ' real\t%E\n user\t%U\n sys\t%S' $CompressBin -v -$CompressLevel $file\n";
+    open COMPRESS,"/usr/bin/time -f ' real\t%E\n user\t%U\n sys\t%S' $CompressBin -v -$CompressLevel $file 2>&1 |";
+    my $line = "";
+    my $retval = 1;
+    while (<COMPRESS>) {
+        chomp;
+        $line=$_;
+	   print " $line\n";
+	if ($line=~/$file.*$file\.gz/) {
+           $nFilesNew++;
+           $retval= 0;
+	   #$sizeNew += $size;
+           #$sizeNewComp += StatSize($file.gz
+        }
+	print " $line\n" if ($line=~/[real|user|sys]/);
+    }
+    close (COMPRESS);
+
+    my $csize = getSize("$file.gz");
+    print "Compressed size is $csize bytes.\n";
+
+    #open GZIP,"$gzip -l $file.gz|";
+    #my $line = "";
+    #while (<GZIP>) {
+    #    chomp;
+    #    $line=$_;
+    #    print "$line\n";
+    #    next if ($line=~/compressed\s+uncompressed\s+ratio\s+uncompressed/);
+    #    my ($null,$csize,$size,$ratio,$name) = split(/\s+/,$line);
+    #    if ($name = "$file.gz") {
+    #      #print "DEBUG: found stats\n";
+          $sizeNew += $size;
+          $sizeNewComp += $csize;
+    #      #print "DEBUG new: + $size = $sizeNew\n";
+    #      #print "DEBUG newc: + $csize = $sizeNewComp\n";
+    #    }
+    #}
+    #close (GZIP);
+
+    return $retval;
+}
+
+sub getSize
+{
+    my ($file) = @_;
+    my $stat = "/usr/bin/stat";
+    my $ssize=0;
+    #print "DEBUG: getting size of $file\n";
+    return 0 if ( ! -e $file );
+    open STAT,"$stat $file|";
+    my $line="";
+    while (<STAT>) {
+      chomp;
+      $line=$_;
+      #print "DEBUG: $line\n";
+      if ( $line=~/Size:/ ){
+        $line=~s/^.*Size:\s*//;
+        $line=~s/\s*Blocks.*$//;
+        $ssize = $line;
+      }
+    }
+    #print "DEBUG: size of $file is $ssize\n";
+    return $ssize if ($ssize =~/\d+/ );
+    return 0;
+}

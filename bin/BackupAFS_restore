@@ -1,0 +1,617 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_restore: Restore files to a client.
+#
+# DESCRIPTION
+#
+#   Usage: BackupAFS_restore <volsetIP> <client> <reqFileName>
+#
+# AUTHOR
+#   Craig Barratt  <cbarratt@users.sourceforge.net>
+#
+# COPYRIGHT
+#   Copyright (C) 2001-2009  Craig Barratt
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+use BackupAFS::FileZIO;
+use BackupAFS::Xfer;
+use Socket;
+
+use File::Path;
+use Getopt::Std;
+
+use vars qw( %RestoreReq );
+
+###########################################################################
+# Initialize
+###########################################################################
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my $TopDir = $bafs->TopDir();
+my $BinDir = $bafs->BinDir();
+my %Conf   = $bafs->Conf();
+my $NeedPostCmd;
+
+my($volsetIP, $volset, $client, $reqFileName, %stat);
+
+$bafs->ChildInit();
+
+if ( @ARGV != 3 ) {
+    print("usage: $0 <volsetIP> <client> <reqFileName>\n");
+    exit(1);
+}
+$volsetIP = $1 if ( $ARGV[0] =~ /(.+)/ );
+$client = $1 if ( $ARGV[1] =~ /(.+)/ );
+if ( $ARGV[2] !~ /^([\w.]+)$/ ) {
+    print("$0: bad reqFileName (arg #3): $ARGV[2]\n");
+    exit(1);
+}
+$reqFileName = $1;
+
+#
+# vos uses localvolset
+#
+$volsetIP = "localvolset";
+$volset = "localvolset";
+
+my $startTime = time();
+
+my $VolSets = $bafs->VolSetInfoRead($client);
+
+my $Dir     = "$TopDir/volsets/$client";
+my @xferPid = ();
+my $tarPid  = -1;
+
+#
+# Catch various signals
+#
+$SIG{INT}  = \&catch_signal;
+$SIG{ALRM} = \&catch_signal;
+$SIG{TERM} = \&catch_signal;
+$SIG{PIPE} = \&catch_signal;
+$SIG{STOP} = \&catch_signal;
+$SIG{TSTP} = \&catch_signal;
+$SIG{TTIN} = \&catch_signal;
+my $Pid = $$;
+
+mkpath($Dir, 0, 0777) if ( !-d $Dir );
+if ( !-f "$Dir/LOCK" ) {
+    open(LOCK, ">", "$Dir/LOCK") && close(LOCK);
+}
+
+my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+my $logPath = sprintf("$Dir/LOG.%02d%04d", $mon + 1, $year + 1900);
+
+if ( !-f $logPath ) {
+    #
+    # Compress and prune old log files
+    #
+    my $lastLog = $Conf{MaxOldPerPCLogFiles} - 1;
+    foreach my $file ( $bafs->sortedPCLogFiles($client) ) {
+        if ( $lastLog <= 0 ) {
+            unlink($file);
+            next;
+        }
+        $lastLog--;
+        next if ( $file =~ /\.z$/ || !$Conf{CompressLevel} );
+        BackupAFS::FileZIO->compressCopy($file,
+                                        "$file.z",
+                                        undef,
+                                        $Conf{CompressLevel}, 1);
+    }
+}
+open(LOG, ">>", $logPath);
+select(LOG); $| = 1; select(STDOUT);
+
+#
+# Read the request file
+#
+if ( !(my $ret = do "$Dir/$reqFileName") ) {
+    my $err;
+    if ( $@ ) {
+        $err = "couldn't parse $Dir/$reqFileName: $@";
+    } elsif ( !defined($ret) ) {
+	$err = "couldn't do $Dir/$reqFileName: $!";
+    } else {
+	$err = "couldn't run $Dir/$reqFileName";
+    }
+    $stat{volsetError} = $err;
+    exit(RestoreCleanup($client));
+}
+
+#
+# Re-read config file, so we can include the PC-specific config
+#
+if ( defined(my $error = $bafs->ConfigRead($client)) ) {
+    $stat{volsetError} = "Can't read PC's config file: $error";
+    exit(RestoreCleanup($client));
+}
+%Conf = $bafs->Conf();
+
+#
+# Make sure we eventually timeout if there is no activity from
+# the data transport program.
+#
+alarm($Conf{ClientTimeout});
+
+#
+# See if the volset name is aliased
+#
+if ( $Conf{ClientNameAlias} ne "" ) {
+    $volset = $Conf{ClientNameAlias};
+} else {
+    $volset = $client;
+}
+
+#
+# Setup file extension for compression and open RestoreLOG output file
+#
+if ( $Conf{CompressLevel} && !BackupAFS::FileZIO->compOk ) {
+    $stat{volsetError} = "Compress:Zlib not found";
+    exit(RestoreCleanup($client));
+}
+my $fileExt = $Conf{CompressLevel} > 0 ? ".z" : "";
+my $RestoreLOG = BackupAFS::FileZIO->open("$Dir/RestoreLOG$fileExt", 1,
+                                     $Conf{CompressLevel});
+my $tarCreateFileCnt = 0;
+my $tarCreateByteCnt = 0;
+my $tarCreateDirCnt  = 0;
+my $tarCreateErrCnt  = 1;	# assume not ok until we learn otherwise
+my $tarCreateErr;
+my($logMsg, $xfer);
+
+$stat{xferOK} = $stat{volsetAbort} = undef;
+$stat{volsetError} = $stat{lastOutputLine} = undef;
+local(*RH, *WH);
+
+#
+# Run an optional pre-restore command
+#
+UserCommandRun("RestorePreUserCmd");
+if ( $? && $Conf{UserCmdCheckStatus} ) {
+    $stat{volsetError} = "RestorePreUserCmd returned error status $?";
+    exit(RestoreCleanup($client));
+}
+$NeedPostCmd = 1;
+
+$xfer = BackupAFS::Xfer::create($Conf{XferMethod}, $bafs);
+if ( !defined($xfer) ) {
+    my $errStr = BackupAFS::Xfer::errStr();
+    UserCommandRun("RestorePostUserCmd") if ( $NeedPostCmd );
+    $stat{volsetError} = $errStr;
+    exit(RestoreCleanup($client));
+}
+
+my $useTar = $xfer->useTar;
+
+if ( $useTar ) {
+    #
+    # Create a socketpair to connect BackupAFS_tarCreate to the transport
+    # program (smbclient, tar, etc).
+    # WH is the write handle for writing, provided to BackupAFS_tarCreate
+    # and RH is the other end of the pipe for reading provided to the
+    # transport program.
+    #
+    if ( socketpair(RH, WH, AF_UNIX, SOCK_STREAM, PF_UNSPEC) ) {
+	shutdown(RH, 1);    # no writing to this socket
+	shutdown(WH, 0);    # no reading from this socket
+	setsockopt(RH, SOL_SOCKET, SO_RCVBUF, 8 * 65536);
+	setsockopt(WH, SOL_SOCKET, SO_SNDBUF, 8 * 65536);
+    } else {
+	#
+	# Default to pipe() if socketpair() doesn't work.
+	#
+	pipe(RH, WH);
+    }
+}
+
+#
+# Run the transport program, which reads from RH and extracts the data.
+#
+my @Backups = $bafs->BackupInfoRead($RestoreReq{volsetSrc});
+my $xferArgs = {
+    client       => $client,
+    volset         => $volset,
+    volsetIP       => $volsetIP,
+    type         => "restore",
+    shareName    => $RestoreReq{shareDest},
+    pipeRH       => *RH,
+    pipeWH       => *WH,
+    XferLOG      => $RestoreLOG,
+    XferMethod   => $Conf{XferMethod},
+    logLevel     => $Conf{XferLogLevel},
+    bkupSrcVolSet  => $RestoreReq{volsetSrc},
+    bkupSrcShare => $RestoreReq{shareSrc},
+    bkupSrcNum   => $RestoreReq{num},
+    backups      => \@Backups,
+    pathHdrSrc   => $RestoreReq{pathHdrSrc},
+    pathHdrDest  => $RestoreReq{pathHdrDest},
+    fileList     => $RestoreReq{fileList},
+    pidHandler   => \&pidHandler,
+};
+
+$xfer->args($xferArgs);
+
+if ( !defined($logMsg = $xfer->start()) ) {
+    UserCommandRun("RestorePostUserCmd") if ( $NeedPostCmd );
+    $stat{volsetError} = "xfer start failed: ", $xfer->errStr;
+    exit(RestoreCleanup($client));
+}
+
+if ( $useTar ) {
+    #
+    # Now do the restore by running BackupAFS_tarCreate
+    #
+    # The parent must close the read handle since the transport program
+    # is using it.
+    #
+    close(RH);
+
+    #
+    # fork a child for BackupAFS_tarCreate.  TAR is a file handle
+    # on which we (the parent) read the stderr from BackupAFS_tarCreate.
+    #
+    my @tarPathOpts;
+    if ( defined($RestoreReq{pathHdrDest})
+		&& $RestoreReq{pathHdrDest} ne $RestoreReq{pathHdrSrc} ) {
+	@tarPathOpts = ("-r", $RestoreReq{pathHdrSrc},
+			"-p", $RestoreReq{pathHdrDest}
+		);
+    }
+    my @tarArgs = (
+	     "-h", $RestoreReq{volsetSrc},
+	     "-n", $RestoreReq{num},
+	     "-s", $RestoreReq{shareSrc},
+	     "-t",
+	     @tarPathOpts,
+	     @{$RestoreReq{fileList}},
+    );
+    my $runMsg = "Running: "
+	       . $bafs->execCmd2ShellCmd("$BinDir/BackupAFS_tarCreate", @tarArgs)
+	       . "\n";
+    $RestoreLOG->write(\$runMsg);
+    if ( !defined($tarPid = open(TAR, "-|")) ) {
+	close(WH);
+	# FIX: need to cleanup xfer
+	UserCommandRun("RestorePostUserCmd") if ( $NeedPostCmd );
+	$stat{volsetError} = "Can't fork to run tar";
+	exit(RestoreCleanup($client));
+    }
+    binmode(TAR);
+    if ( !$tarPid ) {
+	#
+	# This is the tarCreate child.  Clone STDERR to STDOUT,
+	# STDOUT to WH, and then exec BackupAFS_tarCreate.
+	#
+	setpgrp 0,0;
+	close(STDERR);
+	open(STDERR, ">&STDOUT");
+	close(STDOUT);
+	open(STDOUT, ">&WH");
+	alarm(0);
+	exec("$BinDir/BackupAFS_tarCreate", @tarArgs);
+	print(LOG $bafs->timeStamp, "can't exec $BinDir/BackupAFS_tarCreate\n");
+	# FIX: need to cleanup xfer
+	exit(0);
+    }
+    #
+    # The parent must close the write handle since BackupAFS_tarCreate
+    # is using it.
+    #
+    close(WH);
+
+    @xferPid = $xfer->xferPid;
+
+    print(LOG $bafs->timeStamp, $logMsg, "\n");
+    print("started_restore\n");
+
+    pidHandler(@xferPid);
+
+    #
+    # Parse the output of the transfer program and BackupAFS_tarCreate
+    # while they run.  Since we are reading from two or more children
+    # we use a select.
+    #
+    my($FDread, $tarOut, $mesg);
+    vec($FDread, fileno(TAR), 1) = 1;
+    $xfer->setSelectMask(\$FDread);
+
+    SCAN: while ( 1 ) {
+	my $ein = $FDread;
+	last if ( $FDread =~ /^\0*$/ );
+	alarm($Conf{ClientTimeout});
+	select(my $rout = $FDread, undef, $ein, undef);
+	if ( vec($rout, fileno(TAR), 1) ) {
+	    if ( sysread(TAR, $mesg, 8192) <= 0 ) {
+		vec($FDread, fileno(TAR), 1) = 0;
+		if ( !close(TAR) ) {
+		    $tarCreateErrCnt  = 1;
+		    $tarCreateErr = "BackupAFS_tarCreate failed";
+		}
+	    } else {
+		$tarOut .= $mesg;
+	    }
+	}
+	while ( $tarOut =~ /(.*?)[\n\r]+(.*)/s ) {
+	    $_ = $1;
+	    $tarOut = $2;
+	    $RestoreLOG->write(\"tarCreate: $_\n");
+	    if ( /^Done: (\d+) files, (\d+) bytes, (\d+) dirs, (\d+) specials, (\d+) errors/ ) {
+		$tarCreateFileCnt = $1;
+		$tarCreateByteCnt = $2;
+		$tarCreateDirCnt  = $3;
+		$tarCreateErrCnt  = $5;
+	    }
+	}
+	last if ( !$xfer->readOutput(\$FDread, $rout) );
+	while ( my $str = $xfer->logMsgGet ) {
+	    print(LOG $bafs->timeStamp, "xfer: $str\n");
+	}
+    }
+} else {
+    #
+    # otherwise the xfer module does everything for us
+    #
+    print(LOG $bafs->timeStamp, $logMsg . "\n");
+    print("started_restore\n");
+    ($tarCreateFileCnt, $tarCreateByteCnt,
+	$tarCreateErrCnt, $tarCreateErr) = $xfer->run();
+}
+alarm(0);
+
+#
+# Merge the xfer status (need to accumulate counts)
+#
+my $newStat = $xfer->getStats;
+foreach my $k ( (keys(%stat), keys(%$newStat)) ) {
+    next if ( !defined($newStat->{$k}) );
+    if ( $k =~ /Cnt$/ ) {
+        $stat{$k} += $newStat->{$k};
+        delete($newStat->{$k});
+        next;
+    }
+    if ( !defined($stat{$k}) ) {
+        $stat{$k} = $newStat->{$k};
+        delete($newStat->{$k});
+        next;
+    }
+}
+
+exit(RestoreCleanup($client));
+
+###########################################################################
+# Subroutines
+###########################################################################
+
+sub catch_signal
+{
+    my $signame = shift;
+
+    #
+    # Children quit quietly on ALRM
+    #
+    exit(1) if ( $Pid != $$ && $signame eq "ALRM" );
+
+    #
+    # Ignore signals in children
+    #
+    return if ( $Pid != $$ );
+
+    #
+    # Note: needs to be tested for each kind of XferMethod
+    #
+    print(LOG $bafs->timeStamp, "cleaning up after signal $signame\n");
+    $SIG{$signame} = 'IGNORE';
+    $RestoreLOG->write(\"exiting after signal $signame\n");
+    $stat{xferOK} = 0;
+    if ( $signame eq "INT" ) {
+	$stat{volsetError} = "aborted by user (signal=$signame)";
+    } else {
+	$stat{volsetError} = "aborted by signal=$signame";
+    }
+    exit(RestoreCleanup($client));
+}
+
+#
+# Cleanup and update the restore status
+#
+sub RestoreCleanup
+{
+    my($client) = @_;
+
+    $stat{xferOK} = 0 if ( $stat{volsetError} || $stat{volsetAbort}
+			|| $tarCreateErr );
+
+    if ( !$stat{xferOK} ) {
+	#
+	# kill off the tranfer program, first nicely then forcefully
+	#
+	if ( @xferPid ) {
+	    kill($bafs->sigName2num("INT"), @xferPid);
+	    sleep(1);
+	    kill($bafs->sigName2num("KILL"), @xferPid);
+	}
+	#
+	# kill off the tar process, first nicely then forcefully
+	#
+	if ( $tarPid > 0 ) {
+	    kill($bafs->sigName2num("INT"), $tarPid);
+	    sleep(1);
+	    kill($bafs->sigName2num("KILL"), $tarPid);
+	}
+    }
+
+    my $lastNum  = -1;
+    my @Restores;
+    @Restores = $bafs->RestoreInfoRead($client);
+    for ( my $i = 0 ; $i < @Restores ; $i++ ) {
+	$lastNum = $Restores[$i]{num} if ( $lastNum < $Restores[$i]{num} );
+    }
+    $lastNum++;
+
+    #
+    # Run an optional post-restore command
+    #
+    if ( $NeedPostCmd ) {
+        UserCommandRun("RestorePostUserCmd");
+        if ( $? && $Conf{UserCmdCheckStatus} ) {
+            $stat{volsetError} = "RestorePostUserCmd returned error status $?";
+            $stat{xferOK} = 0;
+        }
+    }
+
+    rename("$Dir/RestoreLOG$fileExt", "$Dir/RestoreLOG.$lastNum$fileExt");
+    rename("$Dir/$reqFileName", "$Dir/RestoreInfo.$lastNum");
+    my $endTime = time();
+
+    #
+    # If the restore failed, clean up
+    #
+    if ( !$stat{xferOK} ) {
+	#
+	# wait a short while and see if the system is still alive
+	#
+	$stat{volsetError} ||= $tarCreateErr if ( $tarCreateErr ne "" );
+	$stat{volsetError} = $stat{lastOutputLine} if ( $stat{volsetError} eq "" );
+	sleep(2);
+	if ( $bafs->CheckVolSetAlive($volsetIP) < 0 ) {
+	    $stat{volsetAbort} = 1;
+	}
+	if ( $stat{volsetAbort} && $stat{volsetError} eq "" ) {
+	    $stat{volsetError} = "lost network connection during restore";
+	}
+	$RestoreLOG->write(\"restore failed: $stat{volsetError}\n")
+					    if ( defined($RestoreLOG) );
+    }
+
+    $RestoreLOG->close() if ( defined($RestoreLOG) );
+
+    #
+    # Add the new restore information to the restore file
+    #
+    @Restores = $bafs->RestoreInfoRead($client);
+    my $i = @Restores;
+    $Restores[$i]{num}           = $lastNum;
+    $Restores[$i]{startTime}     = $startTime;
+    $Restores[$i]{endTime}       = $endTime;
+    $Restores[$i]{result}        = $stat{xferOK} ? "ok" : "failed";
+    $Restores[$i]{errorMsg}      = $stat{volsetError};
+    $Restores[$i]{nFiles}        = $tarCreateFileCnt;
+    $Restores[$i]{size}          = $tarCreateByteCnt;
+    $Restores[$i]{tarCreateErrs} = $tarCreateErrCnt;
+    $Restores[$i]{xferErrs}      = $stat{xferErrCnt} || 0;
+
+    while ( @Restores > $Conf{RestoreInfoKeepCnt} ) {
+	my $num = $Restores[0]{num};
+	unlink("$Dir/RestoreLOG.$num.z");
+	unlink("$Dir/RestoreLOG.$num");
+	unlink("$Dir/RestoreInfo.$num");
+	shift(@Restores);
+    }
+    $bafs->RestoreInfoWrite($client, @Restores);
+
+    if ( !$stat{xferOK} ) {
+	print(LOG $bafs->timeStamp, "restore failed ($stat{volsetError})\n");
+	print("restore failed: $stat{volsetError}\n");
+	return 1;
+    } else {
+        $stat{xferErrCnt} ||= 0;
+	print(LOG $bafs->timeStamp, "restore $lastNum complete"
+                . " ($tarCreateFileCnt files, $tarCreateByteCnt bytes,"
+                . " $tarCreateDirCnt dirs, $stat{xferErrCnt} xferErrs)\n");
+	print("restore complete\n");
+	return;
+    }
+}
+
+#
+# The Xfer method might tell us from time to time about processes
+# it forks.  We tell BackupAFS about this (for status displays) and
+# keep track of the pids in case we cancel the backup
+#
+sub pidHandler
+{
+    @xferPid = @_;
+    @xferPid = grep(/./, @xferPid);
+    return if ( !@xferPid && $tarPid < 0 );
+    my @pids = @xferPid;
+    push(@pids, $tarPid) if ( $tarPid > 0 );
+    my $str = join(",", @pids);
+    $RestoreLOG->write(\"Xfer PIDs are now $str\n") if ( defined($RestoreLOG) );
+    print("xferPids $str\n");
+}
+
+#
+# Run an optional pre- or post-dump command
+#
+sub UserCommandRun
+{
+    my($cmdType) = @_;
+
+    return if ( !defined($Conf{$cmdType}) );
+    my $vars = {
+        xfer         => $xfer,
+        client       => $client,
+        volset         => $volset,
+        volsetIP       => $volsetIP,
+        share        => $RestoreReq{shareDest},
+        XferMethod   => $Conf{XferMethod},
+        afsbackupPath => $Conf{SshPath},
+        sshPath      => $Conf{SshPath},
+        LOG          => *LOG,
+	user         => $VolSets->{$client}{user},
+	moreUsers    => $VolSets->{$client}{moreUsers},
+        XferLOG      => $RestoreLOG,
+        stat         => \%stat,
+        xferOK       => $stat{xferOK} || 0,
+	volsetError    => $stat{volsetError},
+	type	     => "restore",
+	bkupSrcVolSet  => $RestoreReq{volsetSrc},
+	bkupSrcShare => $RestoreReq{shareSrc},
+	bkupSrcNum   => $RestoreReq{num},
+	backups      => \@Backups,
+	pathHdrSrc   => $RestoreReq{pathHdrSrc},
+	pathHdrDest  => $RestoreReq{pathHdrDest},
+	fileList     => $RestoreReq{fileList},
+	cmdType	     => $cmdType,
+    };
+    my $cmd = $bafs->cmdVarSubstitute($Conf{$cmdType}, $vars);
+    $RestoreLOG->write(\"Executing $cmdType: @$cmd\n");
+    #
+    # Run the user's command, dumping the stdout/stderr into the
+    # Xfer log file.  Also supply the optional $vars and %Conf in
+    # case the command is really perl code instead of a shell
+    # command.
+    #
+    $bafs->cmdSystemOrEval($cmd,
+	    sub {
+		$RestoreLOG->write(\$_[0]);
+	    },
+	    $vars, \%Conf);
+}

@@ -1,0 +1,431 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_sendEmail: send status emails to users and admins
+#
+# DESCRIPTION
+#
+#   BackupAFS_sendEmail: send status emails to users and admins.
+#   BackupAFS_sendEmail is run by BackupAFS_nightly, so it runs
+#   once every night.
+#
+# AUTHOR
+#   Craig Barratt  <cbarratt@users.sourceforge.net>
+#
+# COPYRIGHT
+#   Copyright (C) 2001-2009  Craig Barratt
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+use BackupAFS::FileZIO;
+use Encode;
+
+use Data::Dumper;
+use Getopt::Std;
+use DirHandle ();
+use vars qw($Lang $TopDir $BinDir $LogDir %Conf $VolSets);
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+$TopDir = $bafs->TopDir();
+$LogDir = $bafs->LogDir();
+$BinDir = $bafs->BinDir();
+%Conf   = $bafs->Conf();
+$Lang   = $bafs->Lang();
+$VolSets  = $bafs->VolSetInfoRead();
+
+$bafs->ChildInit();
+
+use vars qw(%UserEmailInfo);
+do "$LogDir/UserEmailInfo.pl";
+
+my %opts;
+if ( !getopts("ctu:", \%opts) || @ARGV != 0 ) {
+    print <<EOF;
+usage: $0 [-t] [-c] [-u userEmail]
+options:
+
+  -t  display the emails that would be sent, without sending them
+
+  -c  check if BackupAFS is alive and send an email if not
+
+  -u  send a test email to userEmail
+EOF
+    exit(1);
+}
+
+#
+# Upgrade legacy version of %UserEmailInfo
+#
+# Prior versions, it was a hash with entries:
+#
+#    $UserEmailInfo{$user}{lastTime}
+#    $UserEmailInfo{$user}{lastSubj}
+#    $UserEmailInfo{$user}{lastVolSet}
+#
+# However, if a user had multiple volsets, then an email about one
+# volset prevents mail delivery about other volsets.  Starting in 1.0.0
+# the hash is:
+#
+#    $UserEmailInfo{$user}{$volset}{lastTime}
+#    $UserEmailInfo{$user}{$volset}{lastSubj}
+#
+my $oldFormat = 0;
+foreach my $user ( keys(%UserEmailInfo) ) {
+    if ( defined($UserEmailInfo{$user}{lastTime})
+            && ref($UserEmailInfo{$user}{lastTime}) ne 'HASH' ) {
+        $oldFormat = 1;
+        last;
+    }
+}
+if ( $oldFormat ) {
+    #
+    # Convert to the new format
+    #
+    my %UserEmailInfoOld = %UserEmailInfo;
+    %UserEmailInfo = ();
+    foreach my $user ( keys(%UserEmailInfoOld) ) {
+        next if ( $user eq "" );
+        my $volset = $UserEmailInfoOld{$user}{lastVolSet};
+        next if ( !defined($volset) );
+        $UserEmailInfo{$user}{$volset}{lastTime} = $UserEmailInfoOld{$user}{lastTime};
+        $UserEmailInfo{$user}{$volset}{lastSubj} = $UserEmailInfoOld{$user}{lastSubj};
+    }
+}
+
+#
+# Prune volsets that no longer exist
+#
+foreach my $user ( keys(%UserEmailInfo) ) {
+    foreach my $volset ( keys(%{$UserEmailInfo{$user}}) ) {
+        next if ( defined($VolSets->{$volset}) );
+        delete($UserEmailInfo{$user}{$volset});
+    }
+    next if ( $UserEmailInfo{$user} );
+    delete($UserEmailInfo{$user});
+}
+
+my $err = $bafs->ServerConnect($Conf{ServerHost}, $Conf{ServerPort});
+if ( $err ) {
+    if ( $opts{c} && $Conf{EMailAdminUserName} ne "" ) {
+        my $headers = $Conf{EMailHeaders};
+        $headers .= "\n" if ( $headers !~ /\n$/ );
+        my $mesg = <<EOF;
+To: $Conf{EMailAdminUserName}
+Subject: BackupAFS: can't connect to server
+$headers
+Error: cannot connect to BackupAFS server.
+
+Regards,
+PC Backup Genie
+EOF
+        SendMail($mesg);
+        exit(1);
+    }
+    print("Can't connect to server ($err)\n");
+    exit(1);
+}
+exit(0) if ( $opts{c} );
+my $reply = $bafs->ServerMesg("status volsets info");
+$reply = $1 if ( $reply =~ /(.*)/s );
+my(%Status, %Info, %Jobs, @BgQueue, @UserQueue, @CmdQueue);
+eval($reply);
+
+###########################################################################
+# Generate test message if required
+###########################################################################
+if ( $opts{u} ne "" ) {
+    my $headers = $Conf{EMailHeaders};
+    $headers .= "\n" if ( $headers !~ /\n$/ );
+    my $mesg = <<EOF;
+To: $opts{u}
+Subject: BackupAFS test email
+$headers
+This is a test message from $0.
+
+Regards,
+PC Backup Genie
+EOF
+    SendMail($mesg);
+    exit(0);
+}
+
+###########################################################################
+# Generate per-volset warning messages sent to each user
+###########################################################################
+my @AdminBadVolSets = ();
+
+foreach my $volset ( sort(keys(%Status)) ) {
+    #
+    # read any per-PC config settings (allowing per-PC email settings)
+    #
+    $bafs->ConfigRead($volset);
+    %Conf = $bafs->Conf();
+    my $user = $VolSets->{$volset}{user};
+
+    next if ( $user eq "" );
+
+    #
+    # Accumulate volset errors for the admin email below
+    #
+    if ( ($Status{$volset}{reason} eq "Reason_backup_failed"
+               || $Status{$volset}{reason} eq "Reason_restore_failed")
+           && $Status{$volset}{error} !~ /^lost network connection to volset/
+           && !$Conf{BackupsDisable}
+       ) {
+        push(@AdminBadVolSets, "$volset ($Status{$volset}{error})");
+    }
+
+    next if ( time - $UserEmailInfo{$user}{$volset}{lastTime}
+                        < $Conf{EMailNotifyMinDays} * 24*3600
+              || $Conf{XferMethod} eq "archive"
+              || $Conf{BackupsDisable}
+              || $VolSets->{$volset}{user} eq ""
+          );
+    my @Backups = $bafs->BackupInfoRead($volset);
+    my $numBackups = @Backups;
+    if ( $numBackups == 0 ) {
+        my $subj = defined($Conf{EMailNoBackupEverSubj})
+			? $Conf{EMailNoBackupEverSubj}
+			: $Lang->{EMailNoBackupEverSubj};
+        my $mesg = defined($Conf{EMailNoBackupEverMesg})
+		        ? $Conf{EMailNoBackupEverMesg}
+			: $Lang->{EMailNoBackupEverMesg};
+        sendUserEmail($user, $volset, $mesg, $subj, {
+                            userName => user2name($user)
+                        }) if ( !defined($Jobs{$volset}) );
+        next;
+    }
+    my $last = my $lastFull = my $lastIncr = 0;
+    my $lastGoodOutlook = 0;
+    my $lastNum = -1;
+    my $numBadOutlook = 0;
+    for ( my $i = 0 ; $i < @Backups ; $i++ ) {
+        my $fh;
+        #
+        # ignore partials -> only fulls and incrs should be used
+        # in figuring out when the last good backup was
+        #
+        next if ( $Backups[$i]{type} eq "partial" );
+        $lastNum = $Backups[$i]{num} if ( $lastNum < $Backups[$i]{num} );
+        if ( $Backups[$i]{type} eq "full" ) {
+            $lastFull = $Backups[$i]{startTime}
+                    if ( $lastFull < $Backups[$i]{startTime} );
+        } else {
+            $lastIncr = $Backups[$i]{startTime}
+                    if ( $lastIncr < $Backups[$i]{startTime} );
+        }
+        $last = $Backups[$i]{startTime}
+                    if ( $last < $Backups[$i]{startTime} );
+        my $badOutlook = 0;
+        my $file = "$TopDir/volsets/$volset/SmbLOG.$Backups[$i]{num}";
+        my $comp = 0;
+        if ( !-f $file ) {
+            $file = "$TopDir/volsets/$volset/XferLOG.$Backups[$i]{num}";
+            if ( !-f $file ) {
+                $comp = 1;
+                $file = "$TopDir/volsets/$volset/SmbLOG.$Backups[$i]{num}.z";
+                $file = "$TopDir/volsets/$volset/XferLOG.$Backups[$i]{num}.z"
+                                                        if ( !-f $file );
+            }
+        }
+        next if ( !defined($fh = BackupAFS::FileZIO->open($file, 0, $comp)) );
+        while ( 1 ) {
+            my $s = $fh->readLine();
+            last if ( $s eq "" );
+            if ( $s =~ /^\s*Error reading file.*\.pst : (ERRDOS - ERRlock|NT_STATUS_FILE_LOCK_CONFLICT)/
+                  || $s =~ /^\s*Error reading file.*\.pst\. Got 0 bytes/ ) {
+                $badOutlook = 1;
+                last;
+            }
+        }
+        $fh->close();
+        $numBadOutlook += $badOutlook;
+        if ( !$badOutlook ) {
+            $lastGoodOutlook = $Backups[$i]{startTime}
+                    if ( $lastGoodOutlook < $Backups[$i]{startTime} );
+        }
+    }
+    if ( time - $last > $Conf{EMailNotifyOldBackupDays} * 24*3600 ) {
+        my $subj = defined($Conf{EMailNoBackupRecentSubj})
+			? $Conf{EMailNoBackupRecentSubj}
+			: $Lang->{EMailNoBackupRecentSubj};
+        my $mesg = defined($Conf{EMailNoBackupRecentMesg})
+			? $Conf{EMailNoBackupRecentMesg}
+			: $Lang->{EMailNoBackupRecentMesg};
+        my $firstTime = sprintf("%.1f",
+                        (time - $Backups[0]{startTime}) / (24*3600));
+        my $days = sprintf("%.1f", (time - $last) / (24 * 3600));
+        sendUserEmail($user, $volset, $mesg, $subj, {
+                            firstTime  => $firstTime,
+                            days       => $days,
+                            userName   => user2name($user),
+                            numBackups => $numBackups,
+                        }) if ( !defined($Jobs{$volset}) );
+        next;
+    }
+}
+
+###########################################################################
+# Generate sysadmin warning message
+###########################################################################
+my $adminMesg = "";
+
+if ( @AdminBadVolSets ) {
+    my $badVolSets = join("\n  - ", sort(@AdminBadVolSets));
+    $adminMesg .= <<EOF;
+The following volsets had an error that is probably caused by a
+misconfiguration.  Please fix these volsets:
+  - $badVolSets
+
+EOF
+}
+
+#
+# Report if we skipped backups because the disk was too full
+#
+if ( $Info{DUDailySkipVolSetCntPrev} > 0 ) {
+    my $n = $Info{DUDailySkipVolSetCntPrev};
+    my $m = $Conf{DfMaxUsagePct};
+    $adminMesg .= <<EOF;
+Yesterday $n volsets were skipped because the file system containing
+$TopDir was too full.  The threshold in the
+configuration file is $m%, while yesterday the file system was
+up to $Info{DUDailyMaxPrev}% full.  Please find more space on the file system,
+or reduce the number of full or incremental backups that we keep.
+
+EOF
+}
+
+#
+# Check for bogus directories (probably PCs that are no longer
+# on the backup list)
+#
+my $d = DirHandle->new("$TopDir/volsets") or die("Can't read $TopDir/volsets: $!");
+my @oldDirs = ();
+my @files = $d->read;
+$d->close;
+foreach my $volset ( @files ) {
+    next if ( $volset =~ /^\./ || defined($Status{$volset}) );
+    push(@oldDirs, "$TopDir/volsets/$volset");
+}
+if ( @oldDirs ) {
+    my $oldDirs = join("\n  - ", sort(@oldDirs));
+    $adminMesg .= <<EOF;
+The following directories are bogus and are not being used by
+BackupAFS.  This typically happens when PCs are removed from the
+backup list.  If you don't need any old backups from these PCs you
+should remove these directories.  If there are machines on this
+list that should be backed up then there is a problem with the
+volsets file:
+  - $oldDirs
+
+EOF
+}
+
+if ( $adminMesg ne "" && $Conf{EMailAdminUserName} ne "" ) {
+    my $headers = $Conf{EMailHeaders};
+    $headers .= "\n" if ( $headers !~ /\n$/ );
+    $adminMesg = <<EOF;
+To: $Conf{EMailAdminUserName}
+Subject: BackupAFS administrative attention needed
+$headers
+${adminMesg}Regards,
+PC Backup Genie
+EOF
+    SendMail($adminMesg);
+}
+
+###########################################################################
+# Save email state and exit
+###########################################################################
+if ( !$opts{t} ) {
+    $Data::Dumper::Indent = 1;
+    my $dumpStr = Data::Dumper->Dump(
+             [\%UserEmailInfo],
+             [qw(*UserEmailInfo)]);
+    if ( open(VOLUMESET, ">", "$LogDir/UserEmailInfo.pl") ) {
+	binmode(VOLUMESET);
+        print(VOLUMESET $dumpStr);
+        close(VOLUMESET);
+    }
+}
+exit(0);
+
+sub user2name
+{
+    my($user) = @_;
+    my($name) = (getpwnam($user))[6];
+    $name =~ s/\s.*//;
+    $name = $user if ( $name eq "" );
+    return $name;
+}
+
+sub sendUserEmail
+{
+    my($user, $volset, $mesg, $subj, $vars) = @_;
+    return if ( $Conf{BackupsDisable} );
+
+    $vars->{user}     = $user;
+    $vars->{volset}     = $volset;
+    $vars->{headers}  = $Conf{EMailHeaders};
+    $vars->{headers} .= "\n" if ( $vars->{headers} !~ /\n$/ );
+    $vars->{domain}   = $Conf{EMailUserDestDomain};
+    $vars->{CgiURL}   = $Conf{CgiURL};
+    $subj =~ s/\$(\w+)/defined($vars->{$1}) ? $vars->{$1} : "\$$1"/eg;
+    $vars->{subj}     = encode('MIME-Header', $subj);
+    $mesg =~ s/\$(\w+)/defined($vars->{$1}) ? $vars->{$1} : "\$$1"/eg;
+    SendMail($mesg);
+    $UserEmailInfo{$user}{$volset}{lastTime} = time;
+    $UserEmailInfo{$user}{$volset}{lastSubj} = $subj;
+}
+
+sub SendMail
+{
+    my($mesg) = @_;
+    my $from = $Conf{EMailFromUserName};
+    my $utf8 = 1
+        if ( $Conf{EMailHeaders} =~ /Content-Type:.*charset="utf-?8"/i );
+    local(*MAIL);
+
+    if ( $opts{t} ) {
+        binmode(STDOUT, ":utf8") if ( $utf8 );
+        
+        print("#" x 75, "\n");
+        print $mesg;
+        return;
+    }
+    $from = "-f $from" if ( $from ne "" );
+    print("Sending test email using $Conf{SendmailPath} -t $from\n")
+                if ( $opts{u} ne "" );
+    if ( !open(MAIL, "|$Conf{SendmailPath} -t $from") ) {
+    	printf("Can't run sendmail ($Conf{SendmailPath}): $!\n");
+	return;
+    }
+    binmode(MAIL, ":utf8") if ( $utf8 );
+    print MAIL $mesg;
+    close(MAIL);
+}

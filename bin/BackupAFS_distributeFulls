@@ -1,0 +1,190 @@
+#!/usr/bin/perl
+
+# BackupAFS_distributeFulls
+# Distribute full dumps of multiple volumesets across many days in order to
+# keep the duration of the nightly BackupAFS run (aka your backup
+# window) manageable.
+
+# AUTHOR
+#   Stephen Joyce <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2008 Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+# Version 0.2, released 06 November, 2010
+#========================================================================
+
+# How to use
+# 1. Save this file as /path/to/BackupAFS/bin/BackupAFS_distributeFulls and
+#    make it readable and executable by the user who normally runs BackupAFS.
+# 2. Call this file from cron periodically. It will do full backups of $daily_count
+#    volsets each time it's launched. Launching it once per day has the result of
+#    distributing full dumps across multiple days (so your BackupAFS server
+#    doesn't get bogged down doing a full of ALL volsets every $FullPeriod days).
+#    Distributing fulls like this keeps the backup window small.
+#
+# Under normal circumstances, you would run this daily, via cron, beginning
+# after a large number of volsets are added to your BackupAFS server. Once all
+# volsets are processed, the cron job may be removed until the next time it's
+# needed. An example crontab file for Linux might be called
+# /etc/cron.d/BackupAFS_distributeFulls and look similar to this. (Remove ##
+# from each line and change /path/to/BackupAFS to the installed location of
+# your BackupAFS installation). See the cron man pages for information on
+# cron scheduling. If you plan to run this script manually, make sure to
+# su to your backup (or backupafs) user first.
+#
+## # /etc/cron.d/BackupAFS_distributeFulls
+## #
+## # Distribute fulls backups of BackupAFS volsets across multiple days
+## #
+##SHELL=/bin/sh
+##
+##0 12 * * * backup /path/to/BackupAFS/bin/BackupAFS_distributeFulls
+##
+## # end /etc/cron.d/BackupAFS_distributeFulls
+
+
+# variables that you should verify/modify
+$DEBUG=0;          # Print debugging information.
+$QUIET=0;          # Be very quiet. Generate no output unless an error occurs.
+$daily_count=2;    # Number of fulls to run each time this script is launched.
+$count_failures=0; # Change to 1 if you only want $daily_count attempts
+                   # each day regardless of success or failure (instead of
+                   # making attempts until $daily_count dumps are successful).
+
+# other variables you probably won't have to modify
+$BPCETC="/etc/BackupAFS";
+$CONFIG="$BPCETC/config.pl";
+$VOLSETSFILE="$BPCETC/VolumeSet-List";
+$STATEFILE="$BPCETC/distribute-state.txt"; # Where we save our list of processed volsets
+
+#figure out where BackupAFS is installed
+open CONFIG,"<$CONFIG" or die "Can't open BackupAFS config file for reading\n";
+while (<CONFIG>) {
+  chomp;
+  my $line=$_;
+  next if ! ($line=~/\$Conf{InstallDir}/);
+  # form is $Conf{InstallDir} = '/path/to/BackupAFS';
+  $InstallDir=(split(/'/,$line))[1];
+}
+close(CONFIG);
+$command="$InstallDir/bin/BackupAFS_dump";
+if ( -f "$command" ) {
+  print "Found BackupAFS installation at $InstallDir\n" if $DEBUG;
+} else {
+  die "Cound not find BackupAFS at $InstallDir. Check BackupAFS configuration.\n";
+}
+
+# Read the BackupAFS volsets file.
+# Construct a list of all volsets BackupAFS knows about.
+$validvolsetfile=0;
+open VOLSETS,"<$VOLSETSFILE" or die "Can't open BackupAFS volsets file for reading";
+while (<VOLSETS>) {
+  chomp;
+  my $line=$_;
+  next if ($line=~/^#/);
+  next if ($line=~/^\s+$/);
+  if ($line=~/volset:user:moreUsers:.*$/) {
+    $validvolsetfile=1;
+    print "$VOLSETSFILE is a valid VolumeSet-List file.\n" if $DEBUG;
+    next;
+  }
+  $myvolset=(split(/:/,$line))[0];
+  next if (! $myvolset);
+  print "Adding volset $myvolset\n" if $DEBUG;
+  push (@volsets,$myvolset);
+  next;
+}
+close (VOLSETS);
+die "$VOLSETSFILE doesn't appear to be a valid BackupAFS volsets file" if ( ! $validvolsetfile );
+print "\n" if $DEBUG;
+
+# Create state file if it doesn't exist
+if ( ! -f $STATEFILE) {
+  print "No state file found. Creating..." if ( ! $QUIET );
+  open STATE,">$STATEFILE" or die "Can't open $STATEFILE for writing";
+  print STATE "distribute statefile\n";
+  print STATE "# This file tracks volsets we've already processed.\n";
+  print STATE "# Deleting a volset from this file will cause it to be\n";
+  print STATE "# processed the next time BackupAFS_distributeFulls is launched\n";
+  print STATE "# (subject to the normal \$daily_count semantics.)\n";
+  close (STATE);
+  print " done\n" if ( ! $QUIET );
+}
+
+# Read state file
+$validstatefile=0;
+open STATE,"<$STATEFILE" or die "Can't open state file $STATEFILE file for reading";
+while (<STATE>) {
+  chomp;
+  my $line=$_;
+  next if ($line=~/^#/);
+  next if ($line=~/^\s+$/);
+  if ($line=~/distribute statefile/) {
+    $validstatefile=1;
+    print "$STATEFILE is a valid statefile.\n" if $DEBUG;
+    print "To re-process a given volset, remove its name from $STATEFILE\n" if $DEBUG;
+    next;
+  }
+  $myvolset=$line;
+  next if (! $myvolset);
+  push (@donevolsets,$myvolset);
+  next;
+}
+close (STATE);
+die "$STATEFILE doesn't appear to be a valid state file" if ( ! $validstatefile );
+
+# Do the work
+open STATE,">>$STATEFILE" or die "Can't open state file $STATEFILE file for writing";
+$counter=0;
+for $volset (@volsets) {
+  next if ($counter >= $daily_count);
+  my $processed=0;
+  for $pvolset (@donevolsets) {
+    $processed=1 if ($pvolset eq $volset);
+  }
+  if ($processed ) {
+    print "Skipping $volset. Previously processed.\n" if $DEBUG;
+    next;
+  }
+  print "=======\n" if $DEBUG;
+  print "Attempting a full backup of $volset... " if ( ! $QUIET );
+  print "\nRunning command $command -f $volset\n" if $DEBUG;
+  system ("$command -f $volset");
+  #print "$command -f $volset\n";
+  if ($? != 0 ) {
+    # some error occurred. Ack!
+    my $exit_value = $? >> 8;
+    print "FAILED\n$command reported an error. Examine logs and verify desired result.\n";
+    print "Exit value was ".$exit_value."\n";
+    print "Not saving this volset in state file. Will now attempt next volset.\n\n";
+    $counter++ if $count_failures;
+  } else {
+    print STATE "$volset\n";
+    $counter++;
+    print "Command completed without error. Excellent!\n" if ( ! $QUIET );
+  }
+  print "=======\n" if $DEBUG;
+}
+close(STATE);
+if ($counter == 0) {
+  print " No volsets were processed. Either all commands exited with errors\n";
+  print " or all volsets have been previously processed.\n\n";
+  print " In either case, you should take action before the next time this\n";
+  print " script launches.\n";
+}

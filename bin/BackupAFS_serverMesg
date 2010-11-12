@@ -1,0 +1,77 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_serverMesg: Send one or more commands to the BackupAFS server.
+#
+# DESCRIPTION
+#   The BackupAFS server communicates via a unix or internet
+#   domain socket.  Every message is protected with an MD5 digest, based
+#   on a shared secret, a sequence number, and a per-connection unique
+#   key.  This minimizes the risk of an attacked issuing fake commands
+#   to the BackupAFS server.
+#
+#   Usage:
+#       BackupAFS_serverMesg mesg
+#
+#   Example:
+#       BackupAFS_serverMesg status info
+#
+# AUTHOR
+#   Craig Barratt  <cbarratt@users.sourceforge.net>
+#   Stephen Joyce <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2001-2009  Craig Barratt
+#   Copyright (C) 2010 Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+use BackupAFS::FileZIO;
+
+use File::Find;
+use File::Path;
+use Data::Dumper;
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my $TopDir = $bafs->TopDir();
+my $BinDir = $bafs->BinDir();
+my %Conf   = $bafs->Conf();
+
+$bafs->ChildInit();
+
+if ( !@ARGV ) {
+    print("usage: $0 mesg\n");
+    exit(1);
+}
+
+my $err = $bafs->ServerConnect($Conf{ServerHost}, $Conf{ServerPort});
+if ( $err ) {
+    print("Can't connect to server ($err)\n");
+    exit(1);
+}
+my $reply = $bafs->ServerMesg(join(" ", @ARGV));
+print("Got reply: $reply");

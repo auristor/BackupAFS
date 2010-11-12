@@ -1,0 +1,46 @@
+#!/sbin/runscript
+#
+# DESCRIPTION
+#
+#   Startup init script for BackupAFS on Gentoo` linux.
+#
+# Distributed with BackupAFS version 1.0.0rc1, released 12 Nov 2010.
+#
+# description: Starts and stops the BackupAFS server
+# Copy to /etc/init.d and run 'rc-update add backupafs default'
+
+# get our configuration options
+source /etc/conf.d/backupafs
+
+checkconfig() {
+	if [ ! -f ${CONF_FILE} ] ; then
+		eerror "No ${CONF_FILE} exists!"
+	fi
+}
+
+start() {
+	checkconfig || return 1
+	ebegin "Starting BackupAFS"
+	start-stop-daemon --start --chuid ${USER} --user ${USER} --pidfile ${PID_FILE} --exec ${EXEC} -- ${EXEC_OPTIONS}
+	eend $?
+}
+
+stop() {
+	ebegin "Stopping BackupAFS"
+	start-stop-daemon --stop --pidfile ${PID_FILE} --name BackupAFS
+	eend $?
+}
+
+restart() {
+	ebegin "Restarting BackupAFS"
+	svc_stop
+        sleep 1
+	svc_start
+	eend $? "Failed to restart BackupAFS"
+}
+
+status() {
+	return
+	eend $?
+}
+

@@ -1,0 +1,153 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_migrate_unmangle_datadir: helper script for converting
+#   existing backups (made by BackupPC4AFS) into a hierarchical
+#   structure expected by BackupAFS.
+#
+# DESCRIPTION
+#
+#   This program takes one mandatory arguments
+#     --topdir=<path>            This is the top-level storage directory
+#     in which backups are stored. This will contain the pc/, pool/, etc.
+#     directories. This is TopDir during the old installation.
+#
+#    The script examines finds existing files and folders within
+#    the TopDir and "unmangles" them by printing to STDOUT its
+#    suggestions for unmangling the backup store:
+#
+#      For each dump file, remove any leading "f" from the filename.
+#
+#      For each direcotry named "f%2f", rename the directory "volumes".
+#
+#      For each "backups" file, change the field indicating to the CGI
+#       whether or not names are mangled from 1 (mangled) to 0 (not mangled).
+#
+#      For each volset, rename the volset's directory to remove the
+#       leading "afs_". BackupAFS no longer relies on this naming
+#       convention to determine AFS volumesets.
+#
+#      For the top-level "pc/" directory, rename it to "volsets/".
+#
+#   The script uses recursion and attempts to process each volumeset from
+#   the lowest directory level to the highest, to prevent errors with
+#   renaming parents which are already in memory via readdir.
+#
+#   NOTE that this script does not actually perform any actions. Its
+#   record of operations necessary to unmangle the backups is simply
+#   printed to STDOUT. It is advisable for the admin to run this script
+#   one or more times and examine the output. Once comfortable with the
+#   actions, the output may be captured and executed. The necessary
+#   "#!/bin/sh" line is already included in the output.
+#
+#    BackupAFS_migrate_unmangle_datadir > /tmp/unmangle.sh
+#    chmod u+s /tmp/unmangle.sh
+#    /tmp/unmangle.sh
+#
+# BUGS
+#
+#   This is a quick and dirty program, to be ran once. As such, error-
+#   checking is minimal.
+#
+#   Depending on the size of the backup data directory, this script may
+#   take some time to execute. Similarly, running the resultant /bin/sh
+#   script may take some time.
+#
+# AUTHOR
+#   Stephen Joyce <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2010 Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+
+use Getopt::Long;
+use File::Basename;
+
+&GetOptions ("topdir=s");
+
+die ("specify --topdir=<path>\n") if ( ! defined($opt_topdir));
+
+
+my $dir=$opt_topdir;
+
+print "#!/bin/sh\n";
+print "#\n# Unmangling dirs and files in $opt_topdir\n";
+
+sub renameaDir {
+	my ($dir)=@_;
+        opendir(DIR, $dir) or warn "couldn't read $dir for reading\n";
+        my @names = readdir(DIR);
+        close (DIR);
+        for my $name (@names) {
+                next if (($name eq ".") || ($name eq ".."));
+		#print "----\nDEBUG: operating on dir $dir, object $name\n";
+		if (-d "$dir/$name") {
+			# recursively process dir contents BEFORe renaming the dir itself!
+                        renameaDir ("$dir/$name");
+			if ($name=~/f%2f/ ) {
+				#print "#DEBUG: name: \"$name\"\n";
+				my $newname = "volumes";
+				print "mv $dir/$name $dir/$newname\n";
+			} elsif ($name=~/^f/ ) {
+				my $newname=$name;
+				$newname=~s/^f//;
+				print "mv $dir/$name $dir/$newname\n";
+			} elsif (($dir == $opt_topdir) && ($name=~/^afs_/)) {
+				my $newname=$name;
+				$newname=~s/^afs_//;
+				print "mv $dir/$name $dir/$newname\n";
+			} else {
+				print "# skipping $dir/$name\n";
+			}
+                }
+                if (-f "$dir/$name")   {
+                        renameaFile ("$dir/$name");
+                }
+		if ( $name=~/backups$/ ) {
+			print "sed -i 's/1\\tvos/0\\tvos/' $dir/$name\n";
+		}
+	}
+        #print "\nrenameaDir exiting with $localerror\n";
+}
+
+sub renameaFile {
+        my ($path) = @_;
+        my @path = split/\//,$path;
+        my ($filename,$dirname,$suffix) = fileparse ($path,"");
+	#print "DEBUG: file: $filename\nDEBUG:  dir: $dirname\nDEBUG: suff: $suffix\n";
+	if ($filename=~/^f/ ) {
+		# unmangle
+		my $newfilename=$filename;
+		$newfilename=~s/^f//;
+		print "mv $dirname$filename $dirname$newfilename\n";
+	}
+}
+
+renameaDir($dir);
+
+if ($dir =~/\/pc/ ) {
+	my $newdir=$dir;
+	$newdir=~s/\/pc/\/volsets/;
+	print "mv $dir $newdir\n";
+}

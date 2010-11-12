@@ -1,0 +1,1872 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS: Main program for AFS VolumeSet backups.
+#
+# DESCRIPTION
+#
+#   BackupAFS reads the configuration and status information from
+#   $ConfDir/conf.  It then runs and manages all the backup activity.
+#
+#   As specified by $Conf{WakeupSchedule}, BackupAFS wakes up periodically
+#   to queue backups on all the VolumeSets.  This is a four step process:
+#     1) For each VolumeSet backup requests are queued on the
+#        background command queue.
+#     2) For each VolumeSet, BackupAFS_dump is forked.  Several of these may
+#        be run in parallel, based on the configuration.
+#     3) For each complete, good, backup, BackupAFS_compress is forked.
+#        Only one of these tasks runs at a time.
+#     4) In the background BackupAFS_trashClean is run to remove any expired
+#        backups.  Once each night, BackupAFS_nightly is run to complete some
+#        additional administrative tasks.
+#
+#   BackupAFS also listens for connections on a unix domain socket and
+#   the tcp port $Conf{ServerPort}, which are used by various
+#   sub-programs and the CGI script BackupAFS_Admin for status reporting
+#   and user-initiated backup or backup cancel requests.
+#
+# AUTHOR
+#   Craig Barratt  <cbarratt@users.sourceforge.net>
+#
+# COPYRIGHT
+#   Copyright (C) 2001-2009  Craig Barratt
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use vars qw(%Status %Info $VolSets);
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+use BackupAFS::FileZIO;
+use Encode qw/decode_utf8/;
+
+use File::Path;
+use Data::Dumper;
+use Getopt::Std;
+use Socket;
+use Carp;
+use Digest::MD5;
+use POSIX qw(setsid);
+
+###########################################################################
+# Handle command line options
+###########################################################################
+my %opts;
+if ( !getopts("d", \%opts) || @ARGV != 0 ) {
+    print("usage: $0 [-d]\n");
+    exit(1);
+}
+
+###########################################################################
+# Initialize major data structures and variables
+###########################################################################
+
+#
+# Get an instance of BackupAFS::Lib and get some shortcuts.
+#
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my $TopDir = $bafs->TopDir();
+my $BinDir = $bafs->BinDir();
+my $LogDir = $bafs->LogDir();
+my %Conf   = $bafs->Conf();
+
+#
+# Verify we are running as the correct user
+#
+if ( $Conf{BackupAFSUserVerify}
+        && $> != (my $uid = (getpwnam($Conf{BackupAFSUser}))[2]) ) {
+    die "Wrong user: my userid is $>, instead of $uid ($Conf{BackupAFSUser})\n";
+}
+
+#
+# %Status maintain status information about each volset.
+# It is a hash of hashes, whose first index is the volset.
+#
+%Status     = ();
+
+#
+# %Info is a hash giving general information about BackupAFS status.
+#
+%Info       = ();
+
+#
+# Read old status
+#
+if ( -f "$LogDir/status.pl" && !(my $ret = do "$LogDir/status.pl") ) {
+    if ( $@ ) {
+        print STDERR "couldn't parse $LogDir/status.pl: $@";
+    } elsif ( !defined($ret) ) {
+        print STDERR "couldn't do $LogDir/status.pl: $!";
+    } else {
+        print STDERR "couldn't run $LogDir/status.pl";
+    }
+}
+
+#
+# %Jobs maintains information about currently running jobs.
+# It is a hash of hashes, whose first index is the volset.
+#
+my %Jobs       = ();
+
+#
+# There are three command queues:
+#   - @UserQueue is a queue of user initiated backup requests.
+#   - @BgQueue is a queue of automatically scheduled backup requests.
+#   - @CmdQueue is a queue of administrative jobs, including tasks
+#     like BackupAFS_compress, BackupAFS_trashClean, and BackupAFS_nightly
+# Each queue is an array of hashes.  Each hash stores information
+# about the command request.
+#
+my @UserQueue  = ();
+my @CmdQueue   = ();
+my @BgQueue    = ();
+
+#
+# To quickly lookup if a given volset is on a given queue, we keep
+# a hash of flags for each queue type.
+#
+my(%CmdQueueOn, %UserQueueOn, %BgQueueOn);
+
+#
+# One or more clients can connect to the server to get status information
+# or request/cancel backups etc.  The %Clients hash maintains information
+# about each of these socket connections.  The hash key is an incrementing
+# number stored in $ClientConnCnt.  Each entry is a hash that contains
+# various information about the client connection.
+#
+my %Clients    = ();
+my $ClientConnCnt;
+
+#
+# Read file descriptor mask used by select().  Every file descriptor
+# on which we expect to read (or accept) has the corresponding bit
+# set.
+#
+my $FDread     = '';
+
+#
+# Unix seconds when we next wakeup.  A value of zero forces the scheduler
+# to compute the next wakeup time.
+#
+my $NextWakeup = 0;
+
+#
+# Name of signal saved by catch_signal
+#
+my $SigName = "";
+
+#
+# Misc variables
+#
+my($RunNightlyWhenIdle, $FirstWakeup, $CmdJob, $ServerInetPort);
+my($BackupAFSNightlyJobs, $BackupAFSNightlyLock);
+
+#
+# Complete the rest of the initialization
+#
+Main_Initialize();
+
+###########################################################################
+# Main loop
+###########################################################################
+while ( 1 )
+{
+    #
+    # Check if we can/should run BackupAFS_nightly
+    #
+    Main_TryToRun_nightly();
+
+    #
+    # Check if we can run a new command from @CmdQueue.
+    #
+    Main_TryToRun_CmdQueue();
+
+    #
+    # Check if we can run a new command from @UserQueue or @BgQueue.
+    #
+    Main_TryToRun_Bg_or_User_Queue();
+
+    #
+    # Do a select() to wait for the next interesting thing to happen
+    # (timeout, signal, someone sends a message, child dies etc).
+    #
+    my $fdRead = Main_Select();
+
+    #
+    # Process a signal if we received one.
+    #
+    if ( $SigName ) {
+        Main_Process_Signal();
+        $fdRead = undef;
+    }
+
+    #
+    # Check if a timeout has occurred.
+    #
+    Main_Check_Timeout();
+
+    #
+    # Check for, and process, any messages (output) from our jobs
+    #
+    Main_Check_Job_Messages($fdRead);
+
+    #
+    # Check for, and process, any output from our clients.  Also checks
+    # for new connections to our SERVER_UNIX and SERVER_INET sockets.
+    #
+    Main_Check_Client_Messages($fdRead);
+}
+
+############################################################################
+# Main_Initialize()
+#
+# Main initialization routine.  Called once at statup.
+############################################################################
+sub Main_Initialize
+{
+    umask($Conf{UmaskMode});
+
+    #
+    # Check for another running process, verify executables are configured
+    # correctly and make sure $TopDir is on a file system that supports
+    # hardlinks.
+    #
+    if ( $Info{pid} ne "" && kill(0, $Info{pid}) ) {
+        print(STDERR $bafs->timeStamp,
+                 "Another BackupAFS is running (pid $Info{pid}); quitting...\n");
+        exit(1);
+    }
+
+    foreach my $progName ( qw(PingPath DfPath SendmailPath AfsVosPath SshPath) ) {
+        next if ( $Conf{$progName} eq "" || -x $Conf{$progName} );
+        print(STDERR $bafs->timeStamp,
+                     "\$Conf{$progName} = '$Conf{$progName}' is not a"
+                   . " valid executable program\n");
+        exit(1);
+    }
+
+    if ( $opts{d} ) {
+        #
+        # daemonize by forking; more robust method per:
+        #       http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=301057
+        #
+        my $pid;
+        defined($pid = fork) or die("Can't fork: $!");
+        exit if ( $pid );   # parent exits
+
+        POSIX::setsid();
+        defined($pid = fork) or die("Can't fork: $!");
+        exit if $pid;   # parent exits
+
+        chdir ("/") or die("Cannot chdir to /: $!\n");
+        close(STDIN);
+        open(STDIN , ">/dev/null") or die("Cannot open /dev/null as stdin\n");
+        # STDOUT and STDERR are handled in LogFileOpen() right below,
+        # otherwise we would have to reopen them too.
+    }
+
+    #
+    # Open the LOG file and redirect STDOUT, STDERR etc
+    #
+    LogFileOpen();
+
+    #
+    # Read the volsets file (force a read).
+    #
+    exit(1) if ( !VolSetsUpdate(1) );
+
+    #
+    # Clean up %ENV for taint checking
+    #
+    delete @ENV{qw(IFS CDPATH ENV BASH_ENV)};
+    $ENV{PATH} = $Conf{MyPath};
+
+    #
+    # Initialize server sockets
+    #
+    ServerSocketInit();
+
+    #
+    # Catch various signals
+    #
+    foreach my $sig ( qw(INT BUS SEGV PIPE TERM ALRM HUP) ) {
+        $SIG{$sig} = \&catch_signal;
+    }
+
+    #
+    # Report that we started, and update %Info.
+    #
+    print(LOG $bafs->timeStamp, "BackupAFS started, pid $$\n");
+    $Info{ConfigModTime} = $bafs->ConfigMTime();
+    $Info{pid} = $$;
+    $Info{startTime} = time;
+    $Info{ConfigLTime} = time;
+    $Info{Version} = $bafs->{Version};
+
+    #
+    # Update the status left over form the last time BackupAFS ran.
+    # Requeue any pending compressions.
+    #
+    foreach my $volset ( sort(keys(%$VolSets)) ) {
+        if ( $Status{$volset}{state} eq "Status_backup_in_progress" ) {
+            #
+            # should we restart it?  skip it for now.
+            #
+            $Status{$volset}{state} = "Status_idle";
+        } elsif ( $Status{$volset}{state} eq "Status_compress_pending"
+                || $Status{$volset}{state} eq "Status_compress_running" ) {
+            QueueLink($volset);
+        } else {
+            $Status{$volset}{state} = "Status_idle";
+        }
+        $Status{$volset}{activeJob} = 0;
+    }
+    foreach my $volset ( sort(keys(%Status)) ) {
+        next if ( defined($VolSets->{$volset}) );
+	delete($Status{$volset});
+    }
+
+    #
+    # Write out our initial status and save our PID
+    #
+    StatusWrite();
+    unlink("$LogDir/BackupAFS.pid");
+    if ( open(PID, ">", "$LogDir/BackupAFS.pid") ) {
+        print(PID $$);
+        close(PID);
+        chmod(0444, "$LogDir/BackupAFS.pid");
+    }
+
+    #
+    # For unknown reasons there is a very infrequent error about not
+    # being able to coerce GLOBs inside the XS Data::Dumper.  I've
+    # only seen this on a particular platform and perl version.
+    # For now the workaround appears to be use the perl version of
+    # XS Data::Dumper.
+    #
+    $Data::Dumper::Useqq = 1;
+}
+
+############################################################################
+# Main_TryToRun_nightly()
+#
+# Checks to see if we can/should run BackupAFS_nightly or
+# BackupAFS_trashClean.  If so we push the appropriate command onto
+# @CmdQueue.
+############################################################################
+sub Main_TryToRun_nightly
+{
+    #
+    # Check if we should run BackupAFS_nightly or BackupAFS_trashClean.
+    # BackupAFS_nightly is run when the current job queue is empty.
+    # BackupAFS_trashClean is run in the background always.
+    #
+    my $trashCleanRunning = defined($Jobs{$bafs->trashJob}) ? 1 : 0;
+    if ( !$trashCleanRunning && !$CmdQueueOn{$bafs->trashJob} ) {
+	#
+	# This should only happen once at startup, but just in case this
+	# code will re-start BackupAFS_trashClean if it quits
+	#
+	unshift(@CmdQueue, {
+		volset    => $bafs->trashJob,
+		user    => "BackupAFS",
+		reqTime => time,
+		cmd     => ["$BinDir/BackupAFS_trashClean"],
+	    });
+	$CmdQueueOn{$bafs->trashJob} = 1;
+    }
+    if ( $RunNightlyWhenIdle == 1 ) {
+        #
+        # Queue multiple nightly jobs based on the configuration
+        #
+	$Conf{MaxBackupAFSNightlyJobs} = 1
+		    if ( $Conf{MaxBackupAFSNightlyJobs} <= 0 );
+	$Conf{BackupAFSNightlyPeriod} = 1
+		    if ( $Conf{BackupAFSNightlyPeriod} <= 0 );
+	#
+	# Decide what subset of the 16 top-level directories 0..9a..f
+	# we run BackupAFS_nightly on, based on $Conf{BackupAFSNightlyPeriod}.
+	# If $Conf{BackupAFSNightlyPeriod} == 1 then we run 0..15 every
+	# time.  If $Conf{BackupAFSNightlyPeriod} == 2 then we run
+	# 0..7 one night and 89a-f the next night.  And so on.
+	#
+	# $Info{NightlyPhase} counts which night, from 0 to
+	# $Conf{BackupAFSNightlyPeriod} - 1.
+	#
+        my $start = int($Info{NightlyPhase} * 16
+			    / $Conf{BackupAFSNightlyPeriod});
+	my $end = int(($Info{NightlyPhase} + 1) * 16
+			    / $Conf{BackupAFSNightlyPeriod});
+	$end = $start + 1 if ( $end <= $start );
+	$Info{NightlyPhase}++;
+	$Info{NightlyPhase} = 0 if ( $end >= 16 );
+
+	print(LOG $bafs->timeStamp,
+		sprintf("Running %d BackupAFS_nightly jobs from %d..%d"
+		      . " (out of 0..15)\n",
+		      $Conf{MaxBackupAFSNightlyJobs}, $start, $end - 1));
+
+	#
+	# Now queue the $Conf{MaxBackupAFSNightlyJobs} jobs.
+	# The granularity on start and end is now 0..255.
+	#
+	$start *= 16;
+	$end   *= 16;
+	my $start0 = $start;
+        for ( my $i = 0 ; $i < $Conf{MaxBackupAFSNightlyJobs} ; $i++ ) {
+            #
+            # The first nightly job gets the -m option (does email, log aging).
+            # All jobs get the start and end options from 0..255 telling
+            # them which parts of the pool to traverse.
+            #
+            my $cmd = ["$BinDir/BackupAFS_nightly"];
+            push(@$cmd, "-m") if ( $i == 0 );
+            push(@$cmd, $start);
+            $start = $start0 + int(($end - $start0)
+				  * ($i + 1) / $Conf{MaxBackupAFSNightlyJobs});
+            push(@$cmd, $start - 1);
+            my $job = $bafs->adminJob($i);
+            unshift(@CmdQueue, {
+                    volset    => $job,
+                    user    => "BackupAFS",
+                    reqTime => time,
+                    cmd     => $cmd,
+                });
+            $CmdQueueOn{$job} = 1;
+        }
+        $RunNightlyWhenIdle = 2;
+    }
+}
+
+############################################################################
+# Main_TryToRun_CmdQueue()
+#
+# Decide if we can run a new command from the @CmdQueue.
+# We only run one of these at a time.  The @CmdQueue is
+# used to run BackupAFS_compress (for the corresponding volset),
+# BackupAFS_trashClean, and BackupAFS_nightly using a fake
+# volset name of $bafs->adminJob.
+############################################################################
+sub Main_TryToRun_CmdQueue
+{
+    my($req, $volset);
+
+    while ( $CmdJob eq "" && @CmdQueue > 0 && $RunNightlyWhenIdle != 1
+            || @CmdQueue > 0 && $RunNightlyWhenIdle == 2
+                             && $bafs->isAdminJob($CmdQueue[0]->{volset})
+                ) {
+        local(*FH);
+        $req = pop(@CmdQueue);
+
+        $volset = $req->{volset};
+        if ( defined($Jobs{$volset}) ) {
+            print(LOG $bafs->timeStamp,
+                       "Botch on admin job for $volset: already in use!!\n");
+            #
+            # This could happen during normal opertion: a user could
+            # request a backup while a BackupAFS_compress is queued from
+            # a previous backup.  But it is unlikely.  Just put this
+            # request back on the end of the queue.
+            #
+            unshift(@CmdQueue, $req);
+            return;
+        }
+        $CmdQueueOn{$volset} = 0;
+        my $cmd  = $req->{cmd};
+        my $pid = open(FH, "-|");
+        if ( !defined($pid) ) {
+            print(LOG $bafs->timeStamp,
+                       "can't fork for $volset, request by $req->{user}\n");
+            close(FH);
+            next;
+        }
+        if ( !$pid ) {
+            setpgrp 0,0;
+            $ENV{BPC_REQUSER} = $req->{user};
+            POSIX::nice($Conf{CmdQueueNice}) if ( $Conf{CmdQueueNice} );
+            exec(@$cmd);
+            print(LOG $bafs->timeStamp, "can't exec @$cmd for $volset\n");
+            exit(0);
+        }
+        $Jobs{$volset}{pid}       = $pid;
+        $Jobs{$volset}{fh}        = *FH;
+        $Jobs{$volset}{fn}        = fileno(FH);
+        vec($FDread, $Jobs{$volset}{fn}, 1) = 1;
+        $Jobs{$volset}{startTime} = time;
+        $Jobs{$volset}{reqTime}   = $req->{reqTime};
+	$cmd                    = $bafs->execCmd2ShellCmd(@$cmd);
+        $Jobs{$volset}{cmd}       = $cmd;
+        $Jobs{$volset}{user}      = $req->{user};
+        $Jobs{$volset}{type}      = $Status{$volset}{type};
+        $Status{$volset}{state}   = "Status_compress_running";
+        $Status{$volset}{activeJob} = 1;
+        $Status{$volset}{endTime} = time;
+        $CmdJob = $volset if ( $volset ne $bafs->trashJob );
+        $cmd =~ s/$BinDir\///g;
+        print(LOG $bafs->timeStamp, "Running $cmd (pid=$pid)\n");
+	if ( $cmd =~ /^BackupAFS_nightly\s/ ) {
+	    $BackupAFSNightlyJobs++;
+	    $BackupAFSNightlyLock++;
+	}
+    }
+}
+
+############################################################################
+# Main_TryToRun_Bg_or_User_Queue()
+#
+# Decide if we can run any new backup requests from @BgQueue
+# or @UserQueue.  Several of these can be run at the same time
+# based on %Conf settings.  Jobs from @UserQueue take priority,
+# and at total of $Conf{MaxBackups} + $Conf{MaxUserBackups}
+# simultaneous jobs can run from @UserQueue.  After @UserQueue
+# is exhausted, up to $Conf{MaxBackups} simultaneous jobs can
+# run from @BgQueue.
+############################################################################
+sub Main_TryToRun_Bg_or_User_Queue
+{
+    my($req, $volset);
+    my(@deferUserQueue, @deferBgQueue);
+    my $du;
+
+    if ( time - $Info{DUlastValueTime} >= 600 ) {
+        #
+        # Update our notion of disk usage no more than
+        # once every 10 minutes
+        #
+        $du = $bafs->CheckFileSystemUsage($TopDir);
+        $Info{DUlastValue}     = $du;
+        $Info{DUlastValueTime} = time;
+    } else {
+        #
+        # if we recently checked it then just use the old value
+        #
+        $du = $Info{DUlastValue};
+    }
+    if ( $Info{DUDailyMaxReset} ) {
+        $Info{DUDailyMaxStartTime} = time;
+        $Info{DUDailyMaxReset}     = 0;
+        $Info{DUDailyMax}          = 0;
+    }
+    if ( $du > $Info{DUDailyMax} ) {
+        $Info{DUDailyMax}     = $du;
+        $Info{DUDailyMaxTime} = time;
+    }
+    if ( $du > $Conf{DfMaxUsagePct} ) {
+        my @bgQueue = @BgQueue;
+        my $nSkip = 0;
+
+        #
+        # When the disk is too full, only run backups that will
+        # do expires, not regular backups
+        #
+        @BgQueue = ();
+        foreach $req ( @bgQueue ) {
+            if ( $req->{dumpExpire} ) {
+                unshift(@BgQueue, $req);
+            } else {
+                $BgQueueOn{$req->{volset}} = 0;
+                $nSkip++;
+            }
+        }
+        if ( $nSkip ) {
+            print(LOG $bafs->timeStamp,
+                       "Disk too full ($du%); skipped $nSkip volsets\n");
+            $Info{DUDailySkipVolSetCnt} += $nSkip;
+        }
+    }
+
+    #
+    # Run background jobs anytime.  Previously they were locked out
+    # when BackupAFS_nightly was running or pending with this
+    # condition on the while loop:
+    #
+    #    while ( $RunNightlyWhenIdle == 0 )
+    #
+    while ( 1 ) {
+        local(*FH);
+        my(@args, $progName, $type);
+        my $nJobs = keys(%Jobs);
+        #
+        # CmdJob and trashClean don't count towards MaxBackups / MaxUserBackups
+        #
+        if ( $CmdJob ne "" ) {
+            if ( $BackupAFSNightlyJobs ) {
+                $nJobs -= $BackupAFSNightlyJobs;
+            } else {
+                $nJobs--;
+            }
+        }
+        $nJobs-- if ( defined($Jobs{$bafs->trashJob} ) );
+        if ( $nJobs < $Conf{MaxBackups} + $Conf{MaxUserBackups}
+                        && @UserQueue > 0 ) {
+            $req = pop(@UserQueue);
+            if ( defined($Jobs{$req->{volset}}) ) {
+                push(@deferUserQueue, $req);
+                next;
+            }
+            $UserQueueOn{$req->{volset}} = 0;
+        } elsif ( $nJobs < $Conf{MaxBackups}
+                        && (@CmdQueue + $nJobs)
+                                <= $Conf{MaxBackups} + $Conf{MaxPendingCmds}
+                        && @BgQueue > 0 ) {
+            $req = pop(@BgQueue);
+            if ( defined($Jobs{$req->{volset}}) ) {
+                #
+                # Job is currently running for this volset; save it for later
+                #
+                unshift(@deferBgQueue, $req);
+                next;
+            }
+            $BgQueueOn{$req->{volset}} = 0;
+        } else {
+            #
+            # Restore the deferred jobs
+            #
+            @BgQueue   = (@BgQueue,   @deferBgQueue);
+            @UserQueue = (@UserQueue, @deferUserQueue);
+            last;
+        }
+        $volset = $req->{volset};
+        my $user = $req->{user};
+        if ( $req->{restore} ) {
+            $progName = "BackupAFS_restore";
+            $type     = "restore";
+            push(@args, $req->{volsetIP}, $req->{volset}, $req->{reqFileName});
+	} elsif ( $req->{archive} ) {
+            $progName = "BackupAFS_archive";
+            $type     = "archive";
+            push(@args, $req->{user}, $req->{volset}, $req->{reqFileName});
+        } else {
+            $progName = "BackupAFS_dump";
+            $type     = "backup";
+            push(@args, "-I") if ( $req->{backupType} eq "autoIncr" );
+            push(@args, "-F") if ( $req->{backupType} eq "autoFull" );
+            push(@args, "-i") if ( $req->{backupType} eq "doIncr" );
+            push(@args, "-f") if ( $req->{backupType} eq "doFull" );
+            push(@args, "-d") if ( $req->{backupType} eq "dhcpPoll" );
+            push(@args, "-e") if ( $req->{dumpExpire} );
+            push(@args, $volset);
+        }
+        my $pid = open(FH, "-|");
+        if ( !defined($pid) ) {
+            print(LOG $bafs->timeStamp,
+                   "can't fork to run $progName for $volset, request by $user\n");
+            close(FH);
+            next;
+        }
+        if ( !$pid ) {
+            setpgrp 0,0;
+            exec("$BinDir/$progName", @args);
+            print(LOG $bafs->timeStamp, "can't exec $progName for $volset\n");
+            exit(0);
+        }
+        $Jobs{$volset}{pid}        = $pid;
+        $Jobs{$volset}{fh}         = *FH;
+        $Jobs{$volset}{fn}         = fileno(FH);
+        $Jobs{$volset}{dhcp}       = $req->{dhcp};
+        vec($FDread, $Jobs{$volset}{fn}, 1) = 1;
+        $Jobs{$volset}{startTime}  = time;
+        $Jobs{$volset}{reqTime}    = $req->{reqTime};
+        $Jobs{$volset}{userReq}    = $req->{userReq};
+        $Jobs{$volset}{cmd}        = $bafs->execCmd2ShellCmd($progName, @args);
+        $Jobs{$volset}{user}       = $user;
+        $Jobs{$volset}{type}       = $type;
+	$Status{$volset}{userReq}  = $req->{userReq}
+					if ( defined($VolSets->{$volset}) );
+        if ( !$req->{dhcp} ) {
+            $Status{$volset}{state}     = "Status_".$type."_starting";
+            $Status{$volset}{activeJob} = 1;
+            $Status{$volset}{startTime} = time;
+            $Status{$volset}{endTime}   = "";
+        }
+    }
+}
+
+############################################################################
+# Main_Select()
+#
+# If necessary, figure out when to next wakeup based on $Conf{WakeupSchedule},
+# and then do a select() to wait for the next thing to happen
+# (timeout, signal, someone sends a message, child dies etc).
+############################################################################
+sub Main_Select
+{
+    if ( $NextWakeup <= 0 ) {
+        #
+        # Figure out when to next wakeup based on $Conf{WakeupSchedule}.
+        #
+        my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)
+						= localtime(time);
+        my($currHours) = $hour + $min / 60 + $sec / 3600;
+        if ( $bafs->ConfigMTime() != $Info{ConfigModTime} ) {
+            ServerReload("Re-read config file because mtime changed");
+        }
+        my $delta = -1;
+        foreach my $t ( @{$Conf{WakeupSchedule} || [0..23]} ) {
+            next if ( $t < 0 || $t > 24 );
+            my $tomorrow = $t + 24;
+            if ( $delta < 0
+                || ($tomorrow - $currHours > 0
+                                && $delta > $tomorrow - $currHours) ) {
+                $delta = $tomorrow - $currHours;
+                $FirstWakeup = $t == $Conf{WakeupSchedule}[0];
+            }
+            if ( $delta < 0
+                    || ($t - $currHours > 0 && $delta > $t - $currHours) ) {
+                $delta = $t - $currHours;
+                $FirstWakeup = $t == $Conf{WakeupSchedule}[0];
+            }
+        }
+        $NextWakeup = time + $delta * 3600;
+        $Info{nextWakeup} = $NextWakeup;
+        print(LOG $bafs->timeStamp, "Next wakeup is ",
+                  $bafs->timeStamp($NextWakeup, 1), "\n");
+    }
+    #
+    # Call select(), waiting until either a signal, a timeout,
+    # any output from our jobs, or any messages from clients
+    # connected via tcp.
+    # select() is where we (hopefully) spend most of our time blocked...
+    #
+    my $timeout = $NextWakeup - time;
+    $timeout = 1 if ( $timeout <= 0 );
+    my $ein = $FDread;
+    select(my $rout = $FDread, undef, $ein, $timeout);
+
+    return $rout;
+}
+
+############################################################################
+# Main_Process_Signal()
+#
+# Signal handler.
+############################################################################
+sub Main_Process_Signal
+{
+    #
+    # Process signals
+    #
+    if ( $SigName eq "HUP" ) {
+        ServerReload("Re-read config file because of a SIG_HUP");
+    } elsif ( $SigName ) {
+        ServerShutdown("Got signal $SigName... cleaning up");
+    }
+    $SigName = "";
+}
+
+############################################################################
+# Main_Check_Timeout()
+#
+# Check if a timeout has occured, and if so, queue all the PCs for backups.
+# Also does log file aging on the first timeout after midnight.
+############################################################################
+sub Main_Check_Timeout
+{
+    #
+    # Process timeouts
+    #
+    return if ( time < $NextWakeup || $NextWakeup <= 0 );
+    $NextWakeup = 0;
+    if ( $FirstWakeup ) {
+        #
+        # This is the first wakeup after midnight.  Do log file aging
+        # and various house keeping.
+        #
+        $FirstWakeup = 0;
+        printf(LOG "%s24hr disk usage: %d%% max, %d%% recent,"
+                   . " %d skipped volsets\n",
+                   $bafs->timeStamp, $Info{DUDailyMax}, $Info{DUlastValue},
+                   $Info{DUDailySkipVolSetCnt});
+        $Info{DUDailyMaxReset}        = 1;
+        $Info{DUDailyMaxPrev}         = $Info{DUDailyMax};
+        $Info{DUDailySkipVolSetCntPrev} = $Info{DUDailySkipVolSetCnt};
+        $Info{DUDailySkipVolSetCnt}     = 0;
+        my $lastLog = $Conf{MaxOldLogFiles} - 1;
+        if ( -f "$LogDir/LOG.$lastLog" ) {
+            print(LOG $bafs->timeStamp,
+                       "Removing $LogDir/LOG.$lastLog\n");
+            unlink("$LogDir/LOG.$lastLog");
+        }
+        if ( -f "$LogDir/LOG.$lastLog.z" ) {
+            print(LOG $bafs->timeStamp,
+                       "Removing $LogDir/LOG.$lastLog.z\n");
+            unlink("$LogDir/LOG.$lastLog.z");
+        }
+        print(LOG $bafs->timeStamp, "Aging LOG files, LOG -> LOG.0 -> "
+                   . "LOG.1 -> ... -> LOG.$lastLog\n");
+	close(STDERR);		# dup of LOG
+	close(STDOUT);		# dup of LOG
+        close(LOG);
+        for ( my $i = $lastLog - 1 ; $i >= 0 ; $i-- ) {
+            my $j = $i + 1;
+            rename("$LogDir/LOG.$i", "$LogDir/LOG.$j")
+                            if ( -f "$LogDir/LOG.$i" );
+            rename("$LogDir/LOG.$i.z", "$LogDir/LOG.$j.z")
+                            if ( -f "$LogDir/LOG.$i.z" );
+        }
+	#
+	# Compress the log file LOG -> LOG.0.z (if enabled).
+	# Otherwise, just rename LOG -> LOG.0.
+	#
+	BackupAFS::FileZIO->compressCopy("$LogDir/LOG",
+                                        "$LogDir/LOG.0.z",
+                                        "$LogDir/LOG.0",
+                                        $Conf{CompressLevel}, 1);
+        LogFileOpen();
+        #
+        # Remember to run the nightly script when the next CmdQueue
+        # job is done.
+        #
+        if ( $RunNightlyWhenIdle == 2 ) {
+            print(LOG $bafs->timeStamp, "BackupAFS_nightly is still running after 24 hours!!"
+                                     . "  You should adjust the config settings; Skipping this run\n");
+        } else {
+            $RunNightlyWhenIdle = 1;
+        }
+    }
+    #
+    # Write out the current status and then queue all the PCs
+    #
+    VolSetsUpdate(0);
+    StatusWrite();
+    %BgQueueOn = ()   if ( @BgQueue == 0 );
+    %UserQueueOn = () if ( @UserQueue == 0 );
+    %CmdQueueOn = ()  if ( @CmdQueue == 0 );
+    QueueAllPCs();
+}
+
+############################################################################
+# Main_Check_Job_Messages($fdRead)
+#
+# Check if select() says we have bytes waiting from any of our jobs.
+# Handle each of the messages when complete (newline terminated).
+############################################################################
+sub Main_Check_Job_Messages
+{
+    my($fdRead) = @_;
+    foreach my $volset ( keys(%Jobs) ) {
+        next if ( !vec($fdRead, $Jobs{$volset}{fn}, 1) );
+        my $mesg;
+        #
+        # do a last check to make sure there is something to read so
+        # we are absolutely sure we won't block.
+        #
+        vec(my $readMask, $Jobs{$volset}{fn}, 1) = 1;
+        if ( !select($readMask, undef, undef, 0.0) ) {
+            print(LOG $bafs->timeStamp, "Botch in Main_Check_Job_Messages:"
+                        . " nothing to read from $volset.  Debug dump:\n");
+            my($dump) = Data::Dumper->new(
+                         [  \%Clients, \%Jobs, \$FDread, \$fdRead],
+                         [qw(*Clients,  *Jobs   *FDread,  *fdRead)]);
+            $dump->Indent(1);
+            print(LOG $dump->Dump);
+            next;
+        }
+        my $nbytes = sysread($Jobs{$volset}{fh}, $mesg, 1024);
+        $Jobs{$volset}{mesg} .= $mesg if ( $nbytes > 0 );
+        #
+        # Process any complete lines of output from this jobs.
+        # Any output to STDOUT or STDERR from the children is processed here.
+        #
+        while ( $Jobs{$volset}{mesg} =~ /(.*?)[\n\r]+(.*)/s ) {
+            $mesg = $1;
+            $Jobs{$volset}{mesg} = $2;
+            if ( $Jobs{$volset}{dhcp} ) {
+                if ( $mesg =~ /^DHCP (\S+) (\S+)/ ) {
+                    my $newVolSet = $bafs->uriUnesc($2);
+                    if ( defined($Jobs{$newVolSet}) ) {
+                        print(LOG $bafs->timeStamp,
+                                "Backup on $newVolSet is already running\n");
+                        kill($bafs->sigName2num("INT"), $Jobs{$volset}{pid});
+                        $nbytes = 0;
+                        last;
+                    }
+                    $Jobs{$volset}{dhcpVolSetIP} = $volset;
+                    $Status{$newVolSet}{dhcpVolSetIP} = $volset;
+                    $Jobs{$newVolSet} = $Jobs{$volset};
+                    delete($Jobs{$volset});
+                    $volset = $newVolSet;
+                    $Status{$volset}{state}      = "Status_backup_starting";
+                    $Status{$volset}{activeJob}  = 1;
+                    $Status{$volset}{startTime}  = $Jobs{$volset}{startTime};
+                    $Status{$volset}{endTime}    = "";
+                    $Jobs{$volset}{dhcp}         = 0;
+                } else {
+                    print(LOG $bafs->timeStamp, "dhcp $volset: $mesg\n");
+                }
+            } elsif ( $mesg =~ /^started (.*) dump, share=(.*)/ ) {
+                $Jobs{$volset}{type}      = $1;
+                $Jobs{$volset}{shareName} = $2;
+                print(LOG $bafs->timeStamp,
+                          "Started $1 backup on $volset (pid=$Jobs{$volset}{pid}",
+                          $Jobs{$volset}{dhcpVolSetIP}
+                                ? ", dhcp=$Jobs{$volset}{dhcpVolSetIP}" : "",
+                          ", share=$Jobs{$volset}{shareName})\n");
+                $Status{$volset}{state}     = "Status_backup_in_progress";
+                $Status{$volset}{reason}    = "";
+                $Status{$volset}{type}      = $1;
+                $Status{$volset}{startTime} = time;
+                $Status{$volset}{deadCnt}   = 0;
+                $Status{$volset}{aliveCnt}++;
+                $Status{$volset}{dhcpCheckCnt}--
+                                if ( $Status{$volset}{dhcpCheckCnt} > 0 );
+            } elsif ( $mesg =~ /^xferPids (.*)/ ) {
+                $Jobs{$volset}{xferPid} = $1;
+            } elsif ( $mesg =~ /^completionPercent (.*)/ ) {
+                $Jobs{$volset}{completionPercent} = $1;
+            } elsif ( $mesg =~ /^started_restore/ ) {
+                $Jobs{$volset}{type}    = "restore";
+                print(LOG $bafs->timeStamp,
+                          "Started restore on $volset"
+                          . " (pid=$Jobs{$volset}{pid})\n");
+                $Status{$volset}{state}     = "Status_restore_in_progress";
+                $Status{$volset}{reason}    = "";
+                $Status{$volset}{type}      = "restore";
+                $Status{$volset}{startTime} = time;
+                $Status{$volset}{deadCnt}   = 0;
+                $Status{$volset}{aliveCnt}++;
+            } elsif ( $mesg =~ /^started_archive/ ) {
+                $Jobs{$volset}{type}    = "archive";
+                print(LOG $bafs->timeStamp,
+                          "Started archive on $volset"
+                          . " (pid=$Jobs{$volset}{pid})\n");
+                $Status{$volset}{state}     = "Status_archive_in_progress";
+                $Status{$volset}{reason}    = "";
+                $Status{$volset}{type}      = "archive";
+                $Status{$volset}{startTime} = time;
+                $Status{$volset}{deadCnt}   = 0;
+                $Status{$volset}{aliveCnt}++;
+            } elsif ( $mesg =~ /^(full|incr) backup complete/ ) {
+                print(LOG $bafs->timeStamp, "Finished $1 backup on $volset\n");
+                $Status{$volset}{reason}    = "Reason_backup_done";
+                delete($Status{$volset}{error});
+                delete($Status{$volset}{errorTime});
+                $Status{$volset}{endTime}   = time;
+                $Status{$volset}{lastGoodBackupTime} = time;
+            } elsif ( $mesg =~ /^backups disabled/ ) {
+                print(LOG $bafs->timeStamp,
+			    "Ignoring old backup error on $volset\n");
+                $Status{$volset}{reason}    = "Reason_backup_done";
+                delete($Status{$volset}{error});
+                delete($Status{$volset}{errorTime});
+                $Status{$volset}{endTime}   = time;
+            } elsif ( $mesg =~ /^restore complete/ ) {
+                print(LOG $bafs->timeStamp, "Finished restore on $volset\n");
+                $Status{$volset}{reason}    = "Reason_restore_done";
+                delete($Status{$volset}{error});
+                delete($Status{$volset}{errorTime});
+                $Status{$volset}{endTime}   = time;
+            } elsif ( $mesg =~ /^archive complete/ ) {
+                print(LOG $bafs->timeStamp, "Finished archive on $volset\n");
+                $Status{$volset}{reason}    = "Reason_archive_done";
+                delete($Status{$volset}{error});
+                delete($Status{$volset}{errorTime});
+                $Status{$volset}{endTime}   = time;
+            } elsif ( $mesg =~ /^nothing to do/ ) {
+		if ( $Status{$volset}{reason} ne "Reason_backup_failed"
+			&& $Status{$volset}{reason} ne "Reason_restore_failed" ) {
+		    $Status{$volset}{state}     = "Status_idle";
+		    $Status{$volset}{reason}    = "Reason_nothing_to_do";
+		    $Status{$volset}{startTime} = time;
+		}
+                $Status{$volset}{dhcpCheckCnt}--
+                                if ( $Status{$volset}{dhcpCheckCnt} > 0 );
+            } elsif ( $mesg =~ /^no ping response/
+                            || $mesg =~ /^ping too slow/
+                            || $mesg =~ /^volset not found/ ) {
+                $Status{$volset}{state}     = "Status_idle";
+                if ( $Status{$volset}{userReq}
+			|| $Status{$volset}{reason} ne "Reason_backup_failed"
+			|| $Status{$volset}{error} =~ /^aborted by user/ ) {
+                    $Status{$volset}{reason}    = "Reason_no_ping";
+		    $Status{$volset}{error}     = $mesg;
+                    $Status{$volset}{startTime} = time;
+                }
+                $Status{$volset}{deadCnt}++;
+            } elsif ( $mesg =~ /^dump failed: (.*)/ ) {
+                $Status{$volset}{state}     = "Status_idle";
+		$Status{$volset}{error}     = $1;
+		$Status{$volset}{errorTime} = time;
+		$Status{$volset}{endTime}   = time;
+		if ( $Status{$volset}{reason}
+			eq "Reason_backup_canceled_by_user" ) {
+		    print(LOG $bafs->timeStamp,
+			    "Backup canceled on $volset ($1)\n");
+		} else {
+		    $Status{$volset}{reason} = "Reason_backup_failed";
+		    print(LOG $bafs->timeStamp,
+			    "Backup failed on $volset ($1)\n");
+		}
+            } elsif ( $mesg =~ /^restore failed: (.*)/ ) {
+                $Status{$volset}{state}     = "Status_idle";
+                $Status{$volset}{error}     = $1;
+                $Status{$volset}{errorTime} = time;
+                $Status{$volset}{endTime}   = time;
+		if ( $Status{$volset}{reason}
+			 eq "Reason_restore_canceled_by_user" ) {
+		    print(LOG $bafs->timeStamp,
+			    "Restore canceled on $volset ($1)\n");
+		} else {
+		    $Status{$volset}{reason} = "Reason_restore_failed";
+		    print(LOG $bafs->timeStamp,
+			    "Restore failed on $volset ($1)\n");
+		}
+            } elsif ( $mesg =~ /^archive failed: (.*)/ ) {
+                $Status{$volset}{state}     = "Status_idle";
+                $Status{$volset}{error}     = $1;
+                $Status{$volset}{errorTime} = time;
+                $Status{$volset}{endTime}   = time;
+		if ( $Status{$volset}{reason}
+			 eq "Reason_archive_canceled_by_user" ) {
+		    print(LOG $bafs->timeStamp,
+			    "Archive canceled on $volset ($1)\n");
+		} else {
+		    $Status{$volset}{reason} = "Reason_archive_failed";
+		    print(LOG $bafs->timeStamp,
+			    "Archive failed on $volset ($1)\n");
+		}
+            } elsif ( $mesg =~ /^log\s+(.*)/ ) {
+                print(LOG $bafs->timeStamp, "$1\n");
+            } elsif ( $mesg =~ /^BackupAFS_stats (\d+) = (.*)/ ) {
+                my $chunk = int($1 / 16);
+                my @f = split(/,/, $2);
+                $Info{pool}{$f[0]}[$chunk]{FileCnt}       += $f[1];
+                $Info{pool}{$f[0]}[$chunk]{DirCnt}        += $f[2];
+                $Info{pool}{$f[0]}[$chunk]{Kb}            += $f[3];
+                $Info{pool}{$f[0]}[$chunk]{Kb2}           += $f[4];
+                $Info{pool}{$f[0]}[$chunk]{KbRm}          += $f[5];
+                $Info{pool}{$f[0]}[$chunk]{FileCntRm}     += $f[6];
+                $Info{pool}{$f[0]}[$chunk]{FileCntRep}    += $f[7];
+                $Info{pool}{$f[0]}[$chunk]{FileRepMax}     = $f[8]
+                        if ( $Info{pool}{$f[0]}[$chunk]{FileRepMax} < $f[8] );
+                $Info{pool}{$f[0]}[$chunk]{FileCntRename} += $f[9];
+                $Info{pool}{$f[0]}[$chunk]{FileLinkMax}    = $f[10]
+                        if ( $Info{pool}{$f[0]}[$chunk]{FileLinkMax} < $f[10] );
+                $Info{pool}{$f[0]}[$chunk]{FileLinkTotal} += $f[11];
+                $Info{pool}{$f[0]}[$chunk]{Time}           = time;
+            } elsif ( $mesg =~ /^BackupAFS_nightly lock_off/ ) {
+		$BackupAFSNightlyLock--;
+                if ( $BackupAFSNightlyLock == 0 ) {
+                    #
+                    # This means the last BackupAFS_nightly is done with
+		    # the pool clean, so it's ok to start running regular
+		    # backups again.  But starting in 3.0 regular jobs
+                    # are decoupled from BackupAFS_nightly.
+                    #
+                    $RunNightlyWhenIdle = 0;
+		}
+            } elsif ( $mesg =~ /^processState\s+(.+)/ ) {
+                $Jobs{$volset}{processState} = $1;
+            } elsif ( $mesg =~ /^compress\s+(.+)/ ) {
+                my($h) = $1;
+                $Status{$h}{needCompress} = 1;
+            } else {
+                print(LOG $bafs->timeStamp, "$volset: $mesg\n");
+            }
+        }
+        #
+        # shut down the client connection if we read EOF
+        #
+        if ( $nbytes <= 0 ) {
+            close($Jobs{$volset}{fh});
+            vec($FDread, $Jobs{$volset}{fn}, 1) = 0;
+            if ( $CmdJob eq $volset || $bafs->isAdminJob($volset) ) {
+                my $cmd = $Jobs{$volset}{cmd};
+                $cmd =~ s/$BinDir\///g;
+                print(LOG $bafs->timeStamp, "Finished $volset ($cmd)\n");
+                $Status{$volset}{state}    = "Status_idle";
+                $Status{$volset}{endTime}  = time;
+                if ( $cmd =~ /^BackupAFS_nightly\s/ ) {
+                    $BackupAFSNightlyJobs--;
+		    #print(LOG $bafs->timeStamp, "BackupAFS_nightly done; now"
+		    #         . " have $BackupAFSNightlyJobs running\n");
+                    if ( $BackupAFSNightlyJobs <= 0 ) {
+                        #
+                        # Last BackupAFS_nightly has finished
+                        #
+                        $BackupAFSNightlyJobs = 0;
+                        $RunNightlyWhenIdle = 0;
+                        $CmdJob = "";
+                    }
+                } else {
+                    $CmdJob = "";
+                }
+            } else {
+                #
+                # Queue BackupAFS_compress to complete the backup
+                # processing for this volset.
+                #
+                if ( defined($Status{$volset})
+                            && ($Status{$volset}{reason} eq "Reason_backup_done"
+                                || $Status{$volset}{needCompress}) ) {
+                    QueueLink($volset);
+                } elsif ( defined($Status{$volset}) ) {
+                    $Status{$volset}{state} = "Status_idle";
+                }
+            }
+            delete($Jobs{$volset});
+            $Status{$volset}{activeJob} = 0 if ( defined($Status{$volset}) );
+        }
+    }
+    #
+    # When we are idle (empty Jobs, CmdQueue, BgQueue, UserQueue) we
+    # do a pass over %Status updating the deadCnt and aliveCnt for
+    # DHCP volsets.  The reason we need to do this later is we can't
+    # be sure whether a DHCP volset is alive or dead until we have passed
+    # over all the DHCP pool.
+    #
+    return if ( @CmdQueue || @BgQueue || @UserQueue || keys(%Jobs) > 1 );
+    # Do any extra time-consuming, but low-importance jobs here
+}
+
+############################################################################
+# Main_Check_Client_Messages($fdRead)
+#
+# Check for, and process, any output from our clients.  Also checks
+# for new connections to our SERVER_UNIX and SERVER_INET sockets.
+############################################################################
+sub Main_Check_Client_Messages
+{
+    my($fdRead) = @_;
+    foreach my $client ( keys(%Clients) ) {
+        next if ( !vec($fdRead, $Clients{$client}{fn}, 1) );
+        my($mesg, $volset);
+        #
+        # do a last check to make sure there is something to read so
+        # we are absolutely sure we won't block.
+        #
+        vec(my $readMask, $Clients{$client}{fn}, 1) = 1;
+        if ( !select($readMask, undef, undef, 0.0) ) {
+            print(LOG $bafs->timeStamp, "Botch in Main_Check_Client_Messages:"
+                        . " nothing to read from $client.  Debug dump:\n");
+            my($dump) = Data::Dumper->new(
+                         [  \%Clients, \%Jobs, \$FDread, \$fdRead],
+                         [qw(*Clients,  *Jobs   *FDread,  *fdRead)]);
+            $dump->Indent(1);
+            print(LOG $dump->Dump);
+            next;
+        }
+        my $nbytes = sysread($Clients{$client}{fh}, $mesg, 1024);
+        $Clients{$client}{mesg} .= $mesg if ( $nbytes > 0 );
+        #
+        # Process any complete lines received from this client.
+        #
+        while ( $Clients{$client}{mesg} =~ /(.*?)[\n\r]+(.*)/s ) {
+            my($reply);
+            my $cmd = $1;
+            $Clients{$client}{mesg} = $2;
+            #
+            # Authenticate the message by checking the MD5 digest
+            #
+            my $md5 = Digest::MD5->new;
+            if ( $cmd !~ /^(.{22}) (.*)/
+                || ($md5->add($Clients{$client}{seed}
+                            . $Clients{$client}{mesgCnt}
+                            . $Conf{ServerMesgSecret} . $2),
+                     $md5->b64digest ne $1) ) {
+                print(LOG $bafs->timeStamp, "Corrupted message '$cmd' from"
+                            . " client '$Clients{$client}{clientName}':"
+                            . " shutting down client connection\n");
+                $nbytes = 0;
+                last;
+            }
+            $Clients{$client}{mesgCnt}++;
+            $cmd = decode_utf8($2);
+            if ( $cmd =~ /^stop (\S+)\s+(\S+)\s+(\S*)/ ) {
+                $volset = $1;
+                my $user = $2;
+                my $backoff = $3;
+		$volset = $bafs->uriUnesc($volset);
+                if ( $CmdJob ne $volset && defined($Status{$volset})
+                                      && defined($Jobs{$volset}) ) {
+                    print(LOG $bafs->timeStamp,
+                               "Stopping current $Jobs{$volset}{type} of $volset,"
+                             . " request by $user (backoff=$backoff)\n");
+                    kill($bafs->sigName2num("INT"), $Jobs{$volset}{pid});
+		    #
+		    # Don't close the pipe now; wait until the child
+		    # really exits later.  Otherwise close() will
+		    # block until the child has exited.
+		    #  old code:
+                    ##vec($FDread, $Jobs{$volset}{fn}, 1) = 0;
+                    ##close($Jobs{$volset}{fh});
+                    ##delete($Jobs{$volset});
+
+                    $Status{$volset}{state}    = "Status_idle";
+		    if ( $Jobs{$volset}{type} eq "restore" ) {
+			$Status{$volset}{reason}
+				    = "Reason_restore_canceled_by_user";
+		    } elsif ( $Jobs{$volset}{type} eq "archive" ) {
+			$Status{$volset}{reason}
+				    = "Reason_archive_canceled_by_user";
+		    } else {
+			$Status{$volset}{reason}
+				    = "Reason_backup_canceled_by_user";
+		    }
+                    $Status{$volset}{activeJob} = 0;
+                    $Status{$volset}{startTime} = time;
+                    $reply = "ok: $Jobs{$volset}{type} of $volset canceled";
+                } elsif ( $BgQueueOn{$volset} || $UserQueueOn{$volset} ) {
+                    print(LOG $bafs->timeStamp,
+                               "Stopping pending backup of $volset,"
+                             . " request by $user (backoff=$backoff)\n");
+                    @BgQueue = grep($_->{volset} ne $volset, @BgQueue);
+                    @UserQueue = grep($_->{volset} ne $volset, @UserQueue);
+                    $BgQueueOn{$volset} = $UserQueueOn{$volset} = 0;
+                    $reply = "ok: pending backup of $volset canceled";
+                } else {
+                    print(LOG $bafs->timeStamp,
+                               "Nothing to do for stop backup of $volset,"
+                             . " request by $user (backoff=$backoff)\n");
+                    $reply = "ok: no backup was pending or running";
+                }
+                if ( defined($Status{$volset}) && $backoff ne "" ) {
+                    if ( $backoff > 0 ) {
+                        $Status{$volset}{backoffTime} = time + $backoff * 3600;
+                    } else {
+                        delete($Status{$volset}{backoffTime});
+                    }
+                }
+            } elsif ( $cmd =~ /^backup all$/ ) {
+                QueueAllPCs();
+            } elsif ( $cmd =~ /^BackupAFS_nightly run$/ ) {
+                $RunNightlyWhenIdle = 1;
+            } elsif ( $cmd =~ /^backup (\S+)\s+(\S+)\s+(\S+)\s+(\S+)/ ) {
+                my $volsetIP     = $1;
+                $volset          = $2;
+                my $user       = $3;
+                my $backupType = $4;
+		$volset          = $bafs->uriUnesc($volset);
+		$volsetIP        = $bafs->uriUnesc($volsetIP);
+                if ( !defined($VolSets->{$volset}) ) {
+                    print(LOG $bafs->timeStamp,
+                               "User $user requested backup of unknown volset"
+                             . " $volset\n");
+                    $reply = "error: unknown volset $volset";
+                } else {
+                    #
+                    # Handle numeric backupType for backward compatibility
+                    # (technically -1 is a new feature for auto)
+                    #
+                    $backupType = 'auto'   if ( $backupType eq '-1' );
+                    $backupType = 'doIncr' if ( $backupType eq '0' );
+                    $backupType = 'doFull' if ( $backupType eq '1' );
+                    if ( $backupType !~ /^doIncr|doFull|autoIncr|autoFull|auto$/i ) {
+                        $reply = "error: unknown backup type $backupType";
+                    } else {
+                        print(LOG $bafs->timeStamp,
+                                   "User $user requested backup of $volset"
+                                 . " ($volsetIP)\n");
+                        if ( $BgQueueOn{$volsetIP} ) {
+                            @BgQueue = grep($_->{volset} ne $volsetIP, @BgQueue);
+                            $BgQueueOn{$volsetIP} = 0;
+                        }
+                        if ( $UserQueueOn{$volsetIP} ) {
+                            @UserQueue = grep($_->{volset} ne $volsetIP, @UserQueue);
+                            $UserQueueOn{$volsetIP} = 0;
+                        }
+                        my $status = QueueOnePC($volset, $volsetIP, $user, 'user', $backupType);
+                        if ( $status == 0 ) {
+                            $reply = "ok: requested backup of $volset ($backupType)";
+                        } elsif ( $status == 1 ) {
+                            #should never see this we just dequeued it
+                            $reply = "warning: $volset was already queued."
+                                   . " Ignoring this request";
+                        } elsif ( $status == 2 ) {
+                            print(LOG $bafs->timeStamp,
+                                   "Disk too full ($Info{DUlastValue}%)."
+                                 . " Not queueing backup of $volset\n");
+                            $reply = "error: disk too full ($Info{DUlastValue}%)";
+                            $Info{DUDailySkipVolSetCnt}++;
+                        } elsif ( $status == 3 ) {
+                            # should never reach this because
+                            # it's set to "user" above
+                            $reply = "error: unknown queue name";
+                        } else {
+                            $reply = "error: unknown queue status $status";
+                            if ( $BgQueueOn{$volsetIP} || $UserQueueOn{$volsetIP} ) {
+                                $reply .= ".  VolSet is queued.";
+                            } else {
+                                $reply .= ".  VolSet is not queued.";
+                            }
+                        }
+                    }
+                }
+            } elsif ( $cmd =~ /^archive (\S+)\s+(\S+)\s+(\S+)/ ) {
+                my $user         = $1;
+                my $archivevolset  = $2;
+                my $reqFileName  = $3;
+		$volset      = $bafs->uriUnesc($archivevolset);
+                if ( !defined($Status{$volset}) ) {
+                    print(LOG $bafs->timeStamp,
+                               "User $user requested archive of unknown archive volset"
+                             . " $volset");
+                    $reply = "archive error: unknown archive volset $volset";
+                } else {
+                    print(LOG $bafs->timeStamp,
+                               "User $user requested archive on $volset"
+                             . " ($volset)\n");
+                    if ( defined($Jobs{$volset}) ) {
+                        $reply = "Archive currently running on $volset, please try later";
+                    } else {
+                        unshift(@UserQueue, {
+                                volset    => $volset,
+                                user    => $user,
+                                reqFileName => $reqFileName,
+                                reqTime => time,
+                                dhcp    => 0,
+                                archive => 1,
+				userReq => 1,
+                        });
+                        $UserQueueOn{$volset} = 1;
+                        $reply = "ok: requested archive on $volset";
+                    }
+                }
+            } elsif ( $cmd =~ /^restore (\S+)\s+(\S+)\s+(\S+)\s+(\S+)/ ) {
+                my $volsetIP = $1;
+                $volset      = $2;
+                my $user   = $3;
+                my $reqFileName = $4;
+		$volset      = $bafs->uriUnesc($volset);
+		$volsetIP    = $bafs->uriUnesc($volsetIP);
+                if ( !defined($VolSets->{$volset}) ) {
+                    print(LOG $bafs->timeStamp,
+                               "User $user requested restore to unknown volset"
+                             . " $volset");
+                    $reply = "restore error: unknown volset $volset";
+                } else {
+                    print(LOG $bafs->timeStamp,
+                               "User $user requested restore to $volset"
+                             . " ($volsetIP)\n");
+                    unshift(@UserQueue, {
+                                volset    => $volset,
+                                volsetIP  => $volsetIP,
+                                reqFileName => $reqFileName,
+                                reqTime => time,
+                                dhcp    => 0,
+                                restore => 1,
+				userReq => 1,
+                        });
+                    $UserQueueOn{$volset} = 1;
+                    if ( defined($Jobs{$volset}) ) {
+                        $reply = "ok: requested restore of $volset, but a"
+                               . " job is currently running,"
+                               . " so this request will start later";
+                    } else {
+                        $reply = "ok: requested restore of $volset";
+                    }
+                }
+            } elsif ( $cmd =~ /^status\s*(.*)/ ) {
+                my($args) = $1;
+                my($dump, @values, @names);
+                foreach my $type ( split(/\s+/, $args) ) {
+                    if ( $type =~ /^queues/ ) {
+                        push(@values,  \@BgQueue, \@UserQueue, \@CmdQueue);
+                        push(@names, qw(*BgQueue   *UserQueue   *CmdQueue));
+                    } elsif ( $type =~ /^jobs/ ) {
+                        push(@values,  \%Jobs);
+                        push(@names, qw(*Jobs));
+                    } elsif ( $type =~ /^queueLen/ ) {
+                        push(@values,  {
+                                BgQueue   => scalar(@BgQueue),
+                                UserQueue => scalar(@UserQueue),
+                                CmdQueue  => scalar(@CmdQueue),
+                            });
+                        push(@names, qw(*QueueLen));
+                    } elsif ( $type =~ /^info/ ) {
+                        push(@values,  \%Info);
+                        push(@names, qw(*Info));
+                    } elsif ( $type =~ /^volsets/ ) {
+                        push(@values,  \%Status);
+                        push(@names, qw(*Status));
+                    } elsif ( $type =~ /^volset\((.*)\)/ ) {
+			my $h = $bafs->uriUnesc($1);
+                        if ( defined($Status{$h}) ) {
+                            push(@values,  {
+                                    %{$Status{$h}},
+                                    BgQueueOn => $BgQueueOn{$h},
+                                    UserQueueOn => $UserQueueOn{$h},
+                                    CmdQueueOn => $CmdQueueOn{$h},
+                                });
+                            push(@names, qw(*StatusVolSet));
+                        } else {
+                            print(LOG $bafs->timeStamp,
+                                      "Unknown volset $h for status request\n");
+                        }
+                    } else {
+                        print(LOG $bafs->timeStamp,
+                                  "Unknown status request $type\n");
+                    }
+                }
+                $dump = Data::Dumper->new(\@values, \@names);
+                $dump->Indent(0);
+                $reply = $dump->Dump;
+            } elsif ( $cmd =~ /^compress\s+(.+)/ ) {
+                my($volset) = $1;
+		$volset = $bafs->uriUnesc($volset);
+                QueueLink($volset);
+            } elsif ( $cmd =~ /^log\s+(.*)/ ) {
+                print(LOG $bafs->timeStamp, "$1\n");
+            } elsif ( $cmd =~ /^server\s+(\w+)/ ) {
+                my($type) = $1;
+                if ( $type eq 'reload' ) {
+                    ServerReload("Reloading config/volset files via CGI request");
+                } elsif ( $type eq 'shutdown' ) {
+                    $reply = "Shutting down...\n";
+                    syswrite($Clients{$client}{fh}, $reply, length($reply));
+                    ServerShutdown("Server shutting down...");
+                }
+            } elsif ( $cmd =~ /^quit/ || $cmd =~ /^exit/ ) {
+                $nbytes = 0;
+                last;
+            } else {
+                print(LOG $bafs->timeStamp, "Unknown command $cmd\n");
+                $reply = "error: bad command $cmd";
+            }
+            #
+            # send a reply to the client, at a minimum "ok\n".
+            #
+            $reply = "ok" if ( $reply eq "" );
+            $reply .= "\n";
+            syswrite($Clients{$client}{fh}, $reply, length($reply));
+        }
+        #
+        # Detect possible denial-of-service attack from sending a huge line
+        # (ie: never terminated).  32K seems to be plenty big enough as
+        # a limit.
+        #
+        if ( length($Clients{$client}{mesg}) > 32 * 1024 ) {
+            print(LOG $bafs->timeStamp, "Line too long from client"
+                        . " '$Clients{$client}{clientName}':"
+                        . " shutting down client connection\n");
+            $nbytes = 0;
+        }
+        #
+        # Shut down the client connection if we read EOF
+        #
+        if ( $nbytes <= 0 ) {
+            close($Clients{$client}{fh});
+            vec($FDread, $Clients{$client}{fn}, 1) = 0;
+            delete($Clients{$client});
+        }
+    }
+    #
+    # Accept any new connections on each of our listen sockets
+    #
+    if ( vec($fdRead, fileno(SERVER_UNIX), 1) ) {
+        local(*CLIENT);
+        my $paddr = accept(CLIENT, SERVER_UNIX);
+        $ClientConnCnt++;
+        $Clients{$ClientConnCnt}{clientName} = "unix socket";
+        $Clients{$ClientConnCnt}{mesg} = "";
+        $Clients{$ClientConnCnt}{fh}   = *CLIENT;
+        $Clients{$ClientConnCnt}{fn}   = fileno(CLIENT);
+        vec($FDread, $Clients{$ClientConnCnt}{fn}, 1) = 1;
+        #
+        # Generate and send unique seed for MD5 digests to avoid
+        # replay attacks.  See BackupAFS::Lib::ServerMesg().
+        #
+        my $seed = time . ",$ClientConnCnt,$$,0\n";
+        $Clients{$ClientConnCnt}{seed}    = $seed;
+        $Clients{$ClientConnCnt}{mesgCnt} = 0;
+        syswrite($Clients{$ClientConnCnt}{fh}, $seed, length($seed));
+    }
+    if ( $ServerInetPort > 0 && vec($fdRead, fileno(SERVER_INET), 1) ) {
+        local(*CLIENT);
+        my $paddr = accept(CLIENT, SERVER_INET);
+        my($port,$iaddr) = sockaddr_in($paddr); 
+        my $name = getvolsetbyaddr($iaddr, AF_INET);
+        $ClientConnCnt++;
+        $Clients{$ClientConnCnt}{mesg} = "";
+        $Clients{$ClientConnCnt}{fh}   = *CLIENT;
+        $Clients{$ClientConnCnt}{fn}   = fileno(CLIENT);
+        $Clients{$ClientConnCnt}{clientName} = "$name:$port";
+        vec($FDread, $Clients{$ClientConnCnt}{fn}, 1) = 1;
+        #
+        # Generate and send unique seed for MD5 digests to avoid
+        # replay attacks.  See BackupAFS::Lib::ServerMesg().
+        #
+        my $seed = time . ",$ClientConnCnt,$$,$port\n";
+        $Clients{$ClientConnCnt}{seed}    = $seed;
+        $Clients{$ClientConnCnt}{mesgCnt} = 0;
+        syswrite($Clients{$ClientConnCnt}{fh}, $seed, length($seed));
+    }
+}
+
+###########################################################################
+# Miscellaneous subroutines
+###########################################################################
+
+#
+# Write the current status to $LogDir/status.pl
+#
+sub StatusWrite
+{
+    my($dump) = Data::Dumper->new(
+             [  \%Info, \%Status],
+             [qw(*Info   *Status)]);
+    $dump->Indent(1);
+    my $text = $dump->Dump;
+    $bafs->{storage}->TextFileWrite("$LogDir/status.pl", $text);
+}
+
+#
+# Compare function for volset sort.  VolSets with errors go first,
+# sorted with the oldest errors first.  The remaining volsets
+# are sorted so that those with the oldest backups go first.
+#
+sub VolSetSortCompare
+{
+    #
+    # VolSets with errors go before volsets without errors
+    #
+    return -1 if ( $Status{$a}{error} ne "" && $Status{$b}{error} eq "" );
+
+    #
+    # VolSets with no errors go after volsets with errors
+    #
+    return  1 if ( $Status{$a}{error} eq "" && $Status{$b}{error} ne "" );
+
+    #
+    # volsets with the older last good backups sort earlier
+    #
+    my $r = $Status{$a}{lastGoodBackupTime} <=> $Status{$b}{lastGoodBackupTime};
+    return $r if ( $r );
+
+    #
+    # Finally, just sort based on volset name
+    #
+    return $a cmp $b;
+}
+
+#
+# Attempt to queue a volset.
+# Returns 0 on success; 1 if volset is already queued;
+#         2 if volset was skipped; 3 on invalid queue name
+#
+# $volset       is the client's volset name
+# $volsetIP     is usually the client's volset name too, or IP address
+#             if the user specified it in the manual backup command
+# $user       is the user name, or BackupAFS by default
+# $queue      is which queue to use ("bg" by default)
+# $backupType is the backup type (doIncr|doFull|autoIncr|autoFull|auto|dhcpPoll)
+#
+# Note: starting in 1.0.0, the volset is queued even if it has a current
+# job running
+#
+sub QueueOnePC
+{
+    my($volset, $volsetIP, $user, $queue, $backupType) = @_;
+    my $retVal  = 0;
+    $user       = "BackupAFS" if ( $user eq '' );
+    $queue      = "bg"   if ( $queue eq '' && $user eq 'BackupAFS' );
+    $backupType = "auto" if ( $backupType eq '' );
+
+    delete($Status{$volset}{backoffTime})
+            if ( defined($Status{$volset}{backoffTime})
+                  && $Status{$volset}{backoffTime} < time );
+    return 1 if ( $BgQueueOn{$volset} || $UserQueueOn{$volset} );
+    if ( $VolSets->{$volset}{dhcp} ) {
+        $Status{$volset}{dhcpCheckCnt}++;
+        if ( $RunNightlyWhenIdle ) {
+            #
+            # Once per night queue a check for DHCP volsets that just
+            # checks for expired dumps.  We need to do this to handle
+            # the case when a DHCP volset has not been on the network for
+            # a long time, and some of the old dumps need to be expired.
+            # Normally expiry checks are done by BackupAFS_dump only
+            # after the DHCP volsets has been detected on the network.
+            #
+            unshift(@BgQueue,
+                {volset => $volsetIP, user => $user, reqTime => time,
+                 dhcp => 0, dumpExpire => 1});
+            $BgQueueOn{$volset} = 1;
+        }
+    } else {
+        #
+        # this is a fixed ip volset or DHCP ip address: queue it
+        #
+        if ( $Info{DUlastValue} > $Conf{DfMaxUsagePct} ) {
+            #
+            # Since we are out of disk space, instead of queuing
+            # a regular job, queue an expire check instead.  That
+            # way if the admin reduces the number of backups to
+            # keep then we will actually delete them.  Otherwise
+            # BackupAFS_dump will never run since we have exceeded
+            # the limit.
+            #
+            $retVal = 2;
+            unshift(@BgQueue,
+                {volset => $volsetIP, user => $user, reqTime => time, dumpExpire => 1});
+            $BgQueueOn{$volset} = 1;
+        } elsif( $queue eq 'bg' ) {
+            #
+            # Queue regular background backup
+            #
+            unshift(@BgQueue,
+                {volset => $volsetIP, user => $user, reqTime => time, backupType => $backupType});
+            $BgQueueOn{$volset} = 1;
+        } elsif( $queue eq 'user' ) {
+            #
+            # Queue user backup
+            #
+            unshift(@UserQueue,
+                {volset => $volsetIP, user => $user, reqTime => time, backupType => $backupType});
+            $UserQueueOn{$volset} = 1;
+        } else {
+            # unknown $queue type
+            $retVal = 3;
+        }
+    }
+
+    return $retVal;
+}
+
+#
+# Queue all the volsets for backup.  This means queuing all the fixed
+# ip volsets and all the dhcp address ranges.  We also additionally
+# queue the dhcp volsets with a -e flag to check for expired dumps.
+#
+sub QueueAllPCs
+{
+    my $nSkip = 0;
+
+    foreach my $volset ( sort VolSetSortCompare keys(%$VolSets) ) {
+        $nSkip++ if ( QueueOnePC($volset, $volset, 'BackupAFS', 'bg', 'auto') == 2 );
+    }
+    if ( $nSkip ) {
+        print(LOG $bafs->timeStamp,
+               "Disk too full ($Info{DUlastValue}%); skipped $nSkip volsets\n");
+        $Info{DUDailySkipVolSetCnt} += $nSkip;
+    }
+}
+
+#
+# Queue a BackupAFS_compress for the given volset
+#
+sub QueueLink
+{
+    my($volset) = @_;
+
+    return if ( $CmdQueueOn{$volset} );
+    $Status{$volset}{state}    = "Status_compress_pending";
+    $Status{$volset}{needCompress} = 0;
+    unshift(@CmdQueue, {
+            volset    => $volset,
+            user    => "BackupAFS",
+            reqTime => time,
+            #cmd     => ["$BinDir/BackupAFS_compress",  $volset],
+            cmd     => ["$BinDir/BackupAFS_compress",  $volset],
+        });
+    $CmdQueueOn{$volset} = 1;
+}
+
+#
+# Read the volsets file, and update Status if any volsets have been
+# added or deleted.  We also track the mtime so the only need to
+# update the volsets file on changes.
+#
+# This function is called at startup, SIGHUP, and on each wakeup.
+# It returns 1 on success and undef on failure.
+#
+sub VolSetsUpdate
+{
+    my($force) = @_;
+    my $newVolSets;
+    #
+    # Nothing to do if we already have the current volsets file
+    #
+    return 1 if ( !$force && defined($VolSets)
+                          && $Info{VolSetsModTime} == $bafs->VolSetsMTime() );
+    if ( !defined($newVolSets = $bafs->VolSetInfoRead()) ) {
+        print(LOG $bafs->timeStamp, "Can't read volsets file!\n");
+        return;
+    }
+    print(LOG $bafs->timeStamp, "Reading volsets file\n");
+    $VolSets = $newVolSets;
+    $Info{VolSetsModTime} = $bafs->VolSetsMTime();
+    #
+    # Now update %Status in case any volsets have been added or deleted
+    #
+    foreach my $volset ( sort(keys(%$VolSets)) ) {
+        next if ( defined($Status{$volset}) );
+        $Status{$volset}{state} = "Status_idle";
+        print(LOG $bafs->timeStamp, "Added volset $volset to backup list\n");
+    }
+    foreach my $volset ( sort(keys(%Status)) ) {
+        next if ( $volset eq $bafs->trashJob
+                     || $bafs->isAdminJob($volset)
+                     || defined($VolSets->{$volset})
+                     || defined($Jobs{$volset})
+                     || $BgQueueOn{$volset}
+                     || $UserQueueOn{$volset}
+                     || $CmdQueueOn{$volset} );
+        print(LOG $bafs->timeStamp, "Deleted volset $volset from backup list\n");
+        delete($Status{$volset});
+    }
+    return 1;
+}
+
+#
+# Remember the signal name for later processing
+#
+sub catch_signal
+{
+    if ( $SigName ) {
+        $SigName = shift;
+        foreach my $volset ( keys(%Jobs) ) {
+            kill($bafs->sigName2num("INT"), $Jobs{$volset}{pid});
+        }
+        #
+        # In case we are inside the exit handler, reopen the log file
+        #
+        close(LOG);
+        LogFileOpen();
+        print(LOG "Fatal error: unhandled signal $SigName\n");
+        unlink("$LogDir/BackupAFS.pid");
+        confess("Got new signal $SigName... quitting\n");
+    } else {
+	$SigName = shift;
+    }
+}
+
+#
+# Open the log file and point STDOUT and STDERR there too
+#
+sub LogFileOpen
+{
+    mkpath($LogDir, 0, 0777) if ( !-d $LogDir );
+    open(LOG, ">>$LogDir/LOG")
+            || die("Can't create LOG file $LogDir/LOG");
+    close(STDOUT);
+    close(STDERR);
+    open(STDOUT, ">&LOG");
+    open(STDERR, ">&LOG");
+    select(LOG);    $| = 1;
+    select(STDERR); $| = 1;
+    select(STDOUT); $| = 1;
+}
+
+#
+# Initialize the unix-domain and internet-domain sockets that
+# we listen to for client connections (from the CGI script and
+# some of the BackupAFS sub-programs).
+#
+sub ServerSocketInit
+{
+    if ( !defined(fileno(SERVER_UNIX)) ) {
+        #
+        # one-time only: initialize unix-domain socket
+        #
+        if ( !socket(SERVER_UNIX, PF_UNIX, SOCK_STREAM, 0) ) {
+            print(LOG $bafs->timeStamp, "unix socket() failed: $!\n");
+            exit(1);
+        }
+        my $sockFile = "$LogDir/BackupAFS.sock";
+        unlink($sockFile);
+        if ( !bind(SERVER_UNIX, sockaddr_un($sockFile)) ) {
+            print(LOG $bafs->timeStamp, "unix bind() failed: $!\n");
+            exit(1);
+        }
+        if ( !listen(SERVER_UNIX, SOMAXCONN) ) {
+            print(LOG $bafs->timeStamp, "unix listen() failed: $!\n");
+            exit(1);
+        }
+        vec($FDread, fileno(SERVER_UNIX), 1) = 1;
+    }
+    return if ( $ServerInetPort == $Conf{ServerPort} );
+    if ( $ServerInetPort > 0 ) {
+        vec($FDread, fileno(SERVER_INET), 1) = 0;
+        close(SERVER_INET);
+        $ServerInetPort = -1;
+    }
+    if ( $Conf{ServerPort} > 0 ) {
+        #
+        # Setup a socket to listen on $Conf{ServerPort}
+        #
+        my $proto = getprotobyname('tcp');
+        if ( !socket(SERVER_INET, PF_INET, SOCK_STREAM, $proto) ) {
+            print(LOG $bafs->timeStamp, "inet socket() failed: $!\n");
+            exit(1);
+        }
+        if ( !setsockopt(SERVER_INET, SOL_SOCKET, SO_REUSEADDR, pack("l",1)) ) {
+            print(LOG $bafs->timeStamp, "setsockopt() failed: $!\n");
+            exit(1);
+        }
+        if ( !bind(SERVER_INET, sockaddr_in($Conf{ServerPort}, INADDR_ANY)) ) {
+            print(LOG $bafs->timeStamp, "inet bind() failed: $!\n");
+            exit(1);
+        }
+        if ( !listen(SERVER_INET, SOMAXCONN) ) {
+            print(LOG $bafs->timeStamp, "inet listen() failed: $!\n");
+            exit(1);
+        }
+        vec($FDread, fileno(SERVER_INET), 1) = 1;
+        $ServerInetPort = $Conf{ServerPort};
+    }
+}
+
+#
+# Reload the server.  Used by Main_Process_Signal when $SigName eq "HUP"
+# or when the command "server reload" is received.
+#
+sub ServerReload
+{
+    my($mesg) = @_;
+    $mesg = $bafs->ConfigRead() || $mesg;
+    print(LOG $bafs->timeStamp, "$mesg\n");
+    $Info{ConfigModTime} = $bafs->ConfigMTime();
+    %Conf = $bafs->Conf();
+    umask($Conf{UmaskMode});
+    ServerSocketInit();
+    VolSetsUpdate(0);
+    $NextWakeup = 0;
+    $Info{ConfigLTime} = time;
+}
+
+#
+# Gracefully shutdown the server.  Used by Main_Process_Signal when
+# $SigName ne "" && $SigName ne "HUP" or when the command
+# "server shutdown" is received.
+#
+sub ServerShutdown
+{
+    my($mesg) = @_;
+    print(LOG $bafs->timeStamp, "$mesg\n");
+    if ( keys(%Jobs) ) {
+        foreach my $volset ( keys(%Jobs) ) {
+            kill($bafs->sigName2num("INT"), $Jobs{$volset}{pid});
+        }
+        sleep(1);
+        foreach my $volset ( keys(%Jobs) ) {
+            kill($bafs->sigName2num("KILL"), $Jobs{$volset}{pid});
+        }
+        %Jobs = ();
+    }
+    delete($Info{pid});
+    StatusWrite();
+    unlink("$LogDir/BackupAFS.pid");
+    exit(1);
+}
+

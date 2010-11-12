@@ -1,0 +1,175 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_migrate_compress_volsets: helper script for compressing
+#   existing backups (made by BackupPC4AFS).
+#
+# DESCRIPTION
+#
+#   This program takes two mandatory arguments
+#     --datadir=<path>            This is the top-level storage directory
+#     in which backups are stored. This will contain the pc/, pool/, etc.
+#     directories. This is TopDir during the old installation.
+#
+#     --backupuser=<username>     This is the name of the backup user
+#     on the BackupAFS server. This is likely backup, backupafs, or
+#     backuppc. The script requires this information so it can chown the
+#     NewFileList.* files it creates.
+#
+#     Additionally, an optional argument may be specified
+#     --volset=<one volume set name>  If this argument is specified, only
+#     the specified volumeset will be operated on. If this argument is not
+#     specified, this script will find and process all volsets within
+#     <datadir>.
+#
+#     Provided the proper information, the script examines the existing
+#     volumesets and files for each volumeset. For each volumeset with
+#     uncompressed .vdmp files, one or more NewFileList.* files are created
+#     (one for each dump with uncompressed files, named according to that
+#     dump).
+#
+#     This script does not perform the compressions itself; it simply
+#     sets the stage so that BackupAFS may do them.
+#
+#     The compressions will happen normally during the next wakup cycle,
+#     or may be manually launched with one of the following commands
+#
+#      su -c "BackupAFS_serverMesg compress $volsetname" $backupuser
+#
+#      su -c "BackupAFS_serverMesg compress all" $backupuser
+#
+#     where $volsetname is the name of a single volume set and
+#     $backupuser is the name of the user which normally runs BackupAFS.
+#
+# BUGS
+#
+#   This is a quick and dirty program, to be ran once. As such, error-
+#   checking is minimal.
+#
+# AUTHOR
+#   Stephen Joyce <stephen@physics.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2010 Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.0rc1, released 12 Nov 2010.
+#
+# See http://backupafs.sourceforge.net.
+#
+#========================================================================
+
+
+use Getopt::Long;
+use File::Basename;
+
+&GetOptions ("datadir=s","volset=s","backupuser=s");
+
+die ("specify --datadir=<path>\n") if ( ! defined($opt_datadir));
+die ("specify --backupuser=<username>\n") if ( ! defined($opt_backupuser));
+
+my ($backupuid,$backupgid) = (getpwnam($opt_backupuser))[2,3] or die "$opt_backup not in passwd file\n";
+
+
+my $datadir=$opt_datadir;
+my $volset=undef;
+my $volset_text="<some_volset_name>";
+
+if (defined($opt_volset)) {
+	$volset = $opt_volset;
+	$volset_text = $volset;
+}
+
+my @volsets = [ ];
+if (! $volset) {
+	opendir(DIR, "$datadir") or die "1 couldn't open $datadir for reading\n";
+	@volsets = readdir(DIR);
+	close (DIR);
+} else {
+	push @volsets,$volset;
+}
+
+for my $volset (@volsets) {
+        next if (($name eq ".") || ($name eq ".."));
+	next if ( ! -f "$datadir/$volset/backups");
+	#print "DEBUG: found backups for at $datadir/$volset\n";
+	findDumps ("$datadir/$volset");
+
+}
+
+sub findDumps {
+	my ($volsetdir)=@_;
+	opendir(DIR, "$volsetdir") or die "2 couldn't open $volsetdir for reading\n";
+	my @dumps = readdir(DIR);
+	close (DIR);
+	for my $dump (@dumps) {
+        	next if (($dump eq ".") || ($dump eq ".."));
+		next if ( -f "$volsetdir/$dump");
+		#print "DEBUG: found dir $volsetdir/$dump\n";
+		if ( -d "$volsetdir/$dump" ) {
+			my @foobar = ();
+			@foobar = findVolumes ("$volsetdir/$dump");
+			if (@foobar) {
+			open (NFL, ">", "$volsetdir/NewFileList.$dump") or die "Couldn't open $volset/NewFileList.$dump for writing\n";
+			#print "dump: $dump\n";
+				for my $foo (@foobar) {
+					print(NFL "$foo\n");
+					print "$foo\n";
+				}
+			}
+			close (NFL);
+			chown($backupuid, $backupgid , "$volsetdir/NewFileList.$dump");
+			
+		}
+	}
+	$dump=[];
+}
+
+
+sub findVolumes {
+	my ($dumpdir)=@_;
+	my @filelist = ();
+	opendir(DIR, "$dumpdir/volumes") or warn "3 couldn't open $dumpdir for reading\n";
+	my @volumenames= readdir(DIR);
+	close (DIR);
+	for my $volumename (@volumenames) {
+        	next if (($volumename eq ".") || ($volumename eq ".."));
+		next if ($volumename eq "backupInfo");
+		#print "DEBUG: found $volumename\n";
+		opendir(DIR, "$dumpdir/volumes/$volumename") or next;
+		my @files = readdir(DIR);
+		close (DIR);
+
+
+		for my $file (@files) {
+        		next if (($file eq ".") || ($file eq ".."));
+			next if (! ($file=~/\.vdmp$/ ));
+			#print "pushing $dumpdir/volumes/$volumename/$file\n";
+			push @filelist, "$dumpdir/volumes/$volumename/$file";
+		}
+		
+		#next if ( -f "$dumpdir/$dump");
+		#print "DEBUG: found dir $dumpdir/$dump\n";
+	}
+	return @filelist;
+}
+
+print "\nNewFileList.* files written.\n";
+print "To actually perform compression, you must wait for the next backup/compress cycle,";
+print "or request it manually by doing:\n\n";
+print "  su -c \"BackupAFS_serverMesg compress $volset_text\" $opt_backupuser\n\n";
+print "Compressions may take some time.\n";
