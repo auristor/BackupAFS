@@ -57,6 +57,8 @@
 # The first non-comment non-empty line gives the field names and should
 # not be edited!!
 #
+# This file is most readable when viewed on 150+ character wide display.
+#
 volset:user:moreUsers:Entry1_Servers:Entry1_Partitions:Entry1_Volumes:Entry2_Servers:Entry2_Partitions:Entry2_Volumes:Entry3_Servers:Entry3_Partitions:Entry3_Volumes:Entry4_Servers:Entry4_Partitions:Entry4_Volumes:Entry5_Servers:Entry5_Partitions:Entry5_Volumes
 #user_a:backup::.*:.*:user\.a.*\.backup:.*:::::::::::                                         < -- Example to backup all "user.a*" volumes
 #prj_someuser:backup::.*:.*:prj\.someuser\.backup:.*:.*:prj\.someuser\..*\.backup:::::::::    < -- Example to backup all "prj.someuser.*" volumes

@@ -132,16 +132,16 @@ $Conf{MaxBackups} = 4;
 $Conf{MaxUserBackups} = 4;
 
 #
-# Maximum number of pending link commands. New backups will only be
+# Maximum number of pending compress commands. New backups will only be
 # started if there are no more than $Conf{MaxPendingCmds} plus
-# $Conf{MaxBackups} number of pending link commands, plus running jobs.
+# $Conf{MaxBackups} number of pending compress commands, plus running jobs.
 # This limit is to make sure BackupAFS doesn't fall too far behind in
-# running BackupAFS_link commands.
+# running BackupAFS_compress commands.
 #
 $Conf{MaxPendingCmds} = 20;
 
 #
-# Nice level at which CmdQueue commands (eg: BackupAFS_link and
+# Nice level at which CmdQueue commands (eg: BackupAFS_compress and
 # BackupAFS_nightly) are run at.
 #
 $Conf{CmdQueueNice} = 10;
@@ -150,9 +150,8 @@ $Conf{CmdQueueNice} = 10;
 # How many BackupAFS_nightly processes to run in parallel.
 #
 # Each night, at the first wakeup listed in $Conf{WakeupSchedule},
-# BackupAFS_nightly is run.  Its job is to remove unneeded files
-# in the pool, ie: files that only have one link.  To avoid race
-# conditions, BackupAFS_nightly and BackupAFS_link cannot run at
+# BackupAFS_nightly is run. To avoid race
+# conditions, BackupAFS_nightly and BackupAFS_compress cannot run at
 # the same time.  Starting in v3.0.0, BackupAFS_nightly can run
 # concurrently with backups (BackupAFS_dump).
 #

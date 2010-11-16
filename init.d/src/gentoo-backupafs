@@ -4,7 +4,7 @@
 #
 #   Startup init script for BackupAFS on Gentoo` linux.
 #
-# Distributed with BackupAFS version 1.0.0rc1, released 12 Nov 2010.
+# Distributed with BackupAFS version 1.0.0rc2, released 16 Nov 2010.
 #
 # description: Starts and stops the BackupAFS server
 # Copy to /etc/init.d and run 'rc-update add backupafs default'

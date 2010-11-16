@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0rc1, released 12 Nov 2010.
+# Version 1.0.0rc2, released 16 Nov 2010.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -131,7 +131,7 @@ sub new
 
     my $bafs = bless {
 	%$paths,
-        Version => '1.0.0rc1',
+        Version => '1.0.0rc2',
     }, $class;
 
     $bafs->{storage} = BackupAFS::Storage->new($paths);

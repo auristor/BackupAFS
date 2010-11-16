@@ -39,7 +39,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0rc1, released 12 Nov 2010.
+# Version 1.0.0rc2, released 16 Nov 2010.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -70,7 +70,7 @@ my %ActionDispatch = (
     "dirHistory"              	 => "DirHistory",
     "Restore"           	 => "Restore",
     "RestoreFile"         	 => "RestoreFile",
-    "volsetInfo"		       	 => "VolSetInfo",
+    "volsetInfo"	       	 => "VolSetInfo",
     "generalInfo"         	 => "GeneralInfo",
     "restoreInfo"         	 => "RestoreInfo",
     "archiveInfo"         	 => "ArchiveInfo",

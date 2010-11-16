@@ -115,7 +115,7 @@
 </p>
 <h1><a name="backupafs_introduction">BackupAFS Introduction</a></h1>
 <p>This documentation describes BackupAFS version 1.0.0,
-released on 12 Nov 2010.</p>
+released on 16 Nov 2010.</p>
 <p>
 </p>
 <h2><a name="overview">Overview</a></h2>
@@ -235,8 +235,7 @@ time and money) for marketing, PR and advertising, so it's up to
 all of you!  Feel free to vote for BackupAFS at
 <a href="http://freshmeat.net/projects/backupafs">http://freshmeat.net/projects/backupafs</a>.</p>
 <p>Also, everyone is encouraged to contribute patches, bug reports,
-feature and design suggestions, new code, Wiki additions (you can
-do those directly) and documentation corrections or improvements.
+feature and design suggestions, new code, and documentation corrections or improvements.
 Answering questions on the mailing list is a big help too.</p>
 <p>
 <a href="#__index__"><small>Back to Top</small></a>
@@ -280,7 +279,7 @@ with mod_perl support.</p>
 </p>
 <h2><a name="what_type_of_storage_space_do_i_need">What type of storage space do I need?</a></h2>
 <p>BackupAFS stores its dumps of volumesets on disk. Therefore BackupAFS's data store (__TOPDIR__) should point to a single, large file system (it is ok to use a single symbolic link at the top-level directory (__TOPDIR__) to point the entire data store somewhere else). You can of course use any kind of RAID system or logical volume manager that combines the capacity of multiple disks into a single, larger, file system. Such approaches have the advantage that the file system can be expanded without having to copy it.</p>
-<p>Any standard linux or unix file system should work fine. NFS mounted file systems work too. Windows based FAT and NTFS file systems have not been tested, but should work in principle (BackupAFS does not use hard links, but depending some paths may get very long, depending on both site data store location and volume- and volumeset-naming decisions.</p>
+<p>Any standard linux or unix file system should work fine. NFS mounted file systems work too. Windows based FAT and NTFS file systems have not been tested, but should work in principle (BackupAFS does not use hard links, but some paths may get very long, depending on both site data store location and volume- and volumeset-naming decisions.</p>
 <p>
 </p>
 <h2><a name="but_how_much_disk_space_do_i_really_need">But how much disk space do I REALLY need?</a></h2>
@@ -446,10 +445,10 @@ create a symlink to this directory from the BackupAFS CGI bin Directory.</p>
 <p>In this installation the configuration and log directories are
 located in the following locations:</p>
 <pre>
-    /etc/BackupAFS/config.pl    main config file
-    /etc/BackupAFS/VolumeSet-List file with list and defs of volume sets
-    /etc/BackupAFS/pc/HOST.pl   per-pc config file
-    /var/log/BackupAFS/BackupAFS      log files, pid, status</pre>
+    /etc/BackupAFS/config.pl            main config file
+    /etc/BackupAFS/VolumeSet-List       file with list and defs of volume sets
+    /etc/BackupAFS/volsets/VOLUMESET.pl per-pc config file
+    /var/log/BackupAFS/BackupAFS        log files, pid, status</pre>
 <p>The configure.pl script doesn't prompt for these locations but
 they can be set for new installations using command-line options.</p>
 </dd>
@@ -557,11 +556,11 @@ These users will not be sent email about this volset.</p>
 <p>To paraphrase the OpenAFS Administrator's Guide, &quot;a single volumeset consists of [between one and five] volume entries, each of which specifies which volumes to backup based on their location (file server machine and partition) and volume name.&quot; BackupAFS represents the location as Entry<em>X</em>_Servers and Entry<em>X</em>_Partitions. Volume names are specified by Entry<em>X</em>_Volumes, where X is an integer between 1 and 5, inclusive.</p>
 <p>The full list of fields which represent volume entries is</p>
 <pre>
-    Entry1_Servers, Entry1_Partitions, Entry1_Partitions
-    Entry2_Servers, Entry2_Partitions, Entry2_Partitions
-    Entry3_Servers, Entry3_Partitions, Entry3_Partitions
-    Entry4_Servers, Entry4_Partitions, Entry4_Partitions
-    Entry5_Servers, Entry5_Partitions, Entry5_Partitions</pre>
+    Entry1_Servers, Entry1_Partitions, Entry1_Volumes
+    Entry2_Servers, Entry2_Partitions, Entry2_Volumes
+    Entry3_Servers, Entry3_Partitions, Entry3_Volumes
+    Entry4_Servers, Entry4_Partitions, Entry4_Volumes
+    Entry5_Servers, Entry5_Partitions, Entry5_Volumes</pre>
 <p>All of these fields are actually regular expressions. Those of you familar with regular expressions will recall that the period &quot;.&quot; represents any valid character, therefore literal periods in hostnames must be escaped (preceded by a backslash &quot;\&quot;). <strong>Because it is normal to dump only AFS backup volumes (that is the normal volume name with a .backup suffix), it is normal to include \.backup in the regular expression for Entry<em>X</em>_Volumes.</strong> BackupAFS will create the .backup volumes if they do not exist (or re-create them if they do), immediately prior to dumping each volume.</p>
 <p>Examples of valid values of Entry1_Servers include:</p>
 <pre>
@@ -577,8 +576,8 @@ These users will not be sent email about this volset.</p>
 <p>Examples of valid values of Entry<em>X</em>_Volumes include:</p>
 <pre>
     .*\.backup
-    prj\.panic\.backup
-    prj\.panic\..*\.backup
+    prj\.dept\.backup
+    prj\.dept\..*\.backup
     user\.a.*\.backup</pre>
 <p>Entry1_Servers, Entry1_Partitions, and Entry1_Volumes together define one group of volumes which will be backed up in the volumeset. Each volumeset may have up to 5 volume entries comprising it.</p>
 <p>Combining servers, partitions, and volumes usefully in combinations depends on the desired result and the characteristics of the volumes you wish to backup.</p>
@@ -600,7 +599,7 @@ These users will not be sent email about this volset.</p>
 <p>All volumes on one partition, specify the fileserver machine's fully qualified hostname as the Entry<em>X</em>_Servers field, the full partition name as the Entry<em>X</em>_Partitions field, and the regular expression .* for the Entry<em>X</em>_Volumes field. (Example &quot;myvolset:jondoe:janedoe:fileserver1\.mydomain\.com:/vicepa:.*\.backup&quot;)</p>
 </li>
 <li>
-<p>A single volume, specify its complete name in the Entry<em>X</em>_Volumes field. To bypass the potentiall time- consuming search through the VLDB for matching entries, you may specify the actual fileserver machine and partition name in the Entry<em>X</em>_Servers and Entry<em>X</em>_Partitions fields, respectively. However if it is possible that you will need to move the volume in the future, it is best to use the regular expression .* for the server and partition names. (Example &quot;myvolset:jondoe:janedow:.*:.*:user\.bigwig\.backup&quot;)</p>
+<p>A single volume, specify its complete name in the Entry<em>X</em>_Volumes field. To bypass the potentially time-consuming search through the VLDB for matching entries, you may specify the actual fileserver machine and partition name in the Entry<em>X</em>_Servers and Entry<em>X</em>_Partitions fields, respectively. However if it is possible that you will need to move the volume in the future, it is best to use the regular expression .* for the server and partition names. (Example &quot;myvolset:jondoe:janedow:.*:.*:user\.bigwig\.backup&quot;)</p>
 </li>
 </ul>
 <p>Because all of the volumes within a single volumeset are dumped to disk at the same time (daily, weekly, monthly, etc) and in the same manner (full or incremental), a volumeset generally includes volumes with similar contents or characteristics (as indicated by similar names). This grouping by name is generally more useful than one that treats volumes by location, unless your cell includes geographically-separated fileservers. The most common, most useful value for Entry<em>X</em>_Servers and Entry<em>X</em>_Partitions is the regular expression .* (period followed by an asterisk).</p>
@@ -632,9 +631,9 @@ run this command:</p>
 <pre>
     httpd -l | egrep mod_perl</pre>
 <p>If this prints mod_perl.c then your Apache supports mod_perl.</p>
-<p>Note: on some distributions (like Debian) the command is not ``httpd'',
-but ``apache'' or ``apache2''. Those distributions will generally also
-use ``apache'' for the Apache user account and configuration files.</p>
+<p>Note: on some distributions (like Debian) the command is not &quot;httpd&quot;,
+but &quot;apache&quot; or &quot;apache2&quot;. Those distributions will generally also
+use &quot;www-data&quot; for the Apache user account and configuration files.</p>
 <p>Using mod_perl with BackupAFS_Admin requires a dedicated Apache
 to be run as the BackupAFS user (backup).  This is
 because BackupAFS_Admin needs permission to access various files
@@ -901,9 +900,7 @@ VolumeSet-List file at the next regular wakeup.</p>
 <p>
 </p>
 <h2><a name="fixing_installation_problems">Fixing installation problems</a></h2>
-<p>Please see the Wiki at <a href="http://backupafs.wiki.sourceforge.net">http://backupafs.wiki.sourceforge.net</a> for
-debugging suggestions.  If you find a solution to your problem that
-could help other users please add it to the Wiki!</p>
+<p>TODO.</p>
 <p>
 <a href="#__index__"><small>Back to Top</small></a>
 </p>

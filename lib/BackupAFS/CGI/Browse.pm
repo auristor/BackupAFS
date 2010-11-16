@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0rc1, released 12 Nov 2010.
+# Version 1.0.0rc2, released 16 Nov 2010.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -208,9 +208,20 @@ EOF
 		    my $statFile= "$TopDir/volsets/$volset/$a->{backupNum}/volumes". "$statPath";
 		    my $sizeStr;
                     if ($typeStr eq "file" ) {
-			$sizeStr = substr((stat($statFile))[7]/(1024*1024*1024),0,4)." GB";
-                    } elsif ($typeStr eq "dir" ) {
-                        $sizeStr = "-";
+                        my $tempSize = -s "$statFile";
+                        if ($tempSize < 1024) {
+                            $sizeStr =  substr($tempSize,0,4). " B";
+                        } elsif ($tempSize < 1024*1024) {
+                            $sizeStr = substr($tempSize/(1024),0,4). " KB";
+                        } elsif ( $tempSize < 1024*1024*1024) {
+                            $sizeStr = substr($tempSize/(1024*1024),0,4). " MB";
+                        } elsif ( $tempSize < 1024*1024*1024*1024) {
+                            $sizeStr = substr($tempSize/(1024*1024*1024),0,4). " GB";
+                        } else {
+                            $sizeStr = substr($tempSize/(1024*1024*1024*1024),0,4). " TB";
+                        }
+                    } elsif ( $typeStr eq "dir" ) {
+                        $sizeStr = "dir";
 		    } else {
 			$sizeStr = (stat($statFile))[7];
 		    }

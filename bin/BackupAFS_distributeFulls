@@ -9,13 +9,12 @@
 #   Stephen Joyce <stephen@physics.unc.edu>
 #
 # COPYRIGHT
-#   Copyright (C) 2008 Stephen Joyce
+#   Copyright (C) 2008,2010 Stephen Joyce
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
 #   the Free Software Foundation; version 3 ONLY.
 #   
-#
 #   This program is distributed in the hope that it will be useful,
 #   but WITHOUT ANY WARRANTY; without even the implied warranty of
 #   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -26,7 +25,7 @@
 #   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
 #========================================================================
-# Version 0.2, released 06 November, 2010
+# Version 1.0.0rc2, released 16 Nov 2010
 #========================================================================
 
 # How to use

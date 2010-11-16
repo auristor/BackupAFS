@@ -1,17 +1,19 @@
 
                               BackupAFS
 
-                            Version 1.0.0rc1
+                            Version 1.0.0rc2
 
-                            12 Nov 2010
+                            16 Nov 2010
 
                    Copyright (C) 2001-2009 Craig Barratt.
-                   Copyright (C) 2010 Stephen Joyce.
+                   Copyright (C) 2006-2010 Stephen Joyce.
 
                         All rights reserved.
 
       This program is free software; you can redistribute it and/or
-      modify it under the terms of the GNU General Public License version 3.
+      modify it under the terms of the GNU Affero General Public License
+                          version 3 (ONLY).
+
                         See the LICENSE file.
 
 QUICK START:
@@ -21,18 +23,10 @@ The latest version of BackupAFS can be fetched from:
 
     http://backupafs.sourceforge.net
 
-If you will use SMB for WinXX clients, you will need smbclient and
-nmblookup from the Samba distribution.  Version >= 2.2.0 of Samba is
-recommended (smbclient's tar feature in 2.0.7 has bugs for certain
-path lengths).  See www.samba.org for source and binaries.
-
-If you use rsync you will need File::RsyncP on SourceForge or www.cpan.org,
-plus rsync 2.5.6 on the client machines.
-
 To install BackupAFS run these commands as root:
 
-    tar zxf BackupAFS-1.0.0rc1.tar.gz
-    cd BackupAFS-1.0.0rc1
+    tar zxf BackupAFS-1.0.0rc2.tar.gz
+    cd BackupAFS-1.0.0rc2
     perl configure.pl
 
 This will automatically determine some system information and prompt you
