@@ -37,7 +37,7 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
-# Version 1.0.0rc2, released 16 Nov 2010.
+# Version 1.0.0, released 22 Nov 2010.
 
 
 #$volset = 'panic1'; #get from @arg

@@ -115,7 +115,7 @@
 </p>
 <h1><a name="backupafs_introduction">BackupAFS Introduction</a></h1>
 <p>This documentation describes BackupAFS version 1.0.0,
-released on 16 Nov 2010.</p>
+released on 22 Nov 2010.</p>
 <p>
 </p>
 <h2><a name="overview">Overview</a></h2>
@@ -188,7 +188,7 @@ created by periodically backing up the server to tape.</p>
 <dt><strong><a name="backupafs_home_page" class="item">BackupAFS home page</a></strong></dt>
 
 <dd>
-<p>The BackupAFS Open Source project is hosted on SourceForge.  The
+<p>The BackupAFS Open Source project is hosted on SourceForge. The
 home page can be found at:</p>
 <pre>
     <a href="http://backupafs.sourceforge.net">http://backupafs.sourceforge.net</a></pre>
@@ -229,7 +229,7 @@ project page and general information.</p>
 <p>My main compensation for continuing to work on BackupAFS is knowing that more and more people find it useful. So feedback is certainly appreciated, both positive and negative.</p>
 <p>Beyond being a satisfied user and telling other people about it, everyone
 is encouraged to add links to <a href="http://backupafs.sourceforge.net">http://backupafs.sourceforge.net</a>
-(I'll see them via Google) or otherwise publicize BackupAFS.  Unlike
+(I'll see them via Google) or otherwise publicize BackupAFS. Unlike
 the commercial products in this space, I have a zero budget (in both
 time and money) for marketing, PR and advertising, so it's up to
 all of you!  Feel free to vote for BackupAFS at
@@ -258,13 +258,13 @@ Answering questions on the mailing list is a big help too.</p>
 <p>The standard OpenAFS client, including the 'vos' binary. Use the version provided by your OS, or get it from <a href="http://www.openafs.org">http://www.openafs.org</a>.</p>
 </li>
 <li>
-<p>Perl version 5.8.0 or later.  If you don't have perl, please
+<p>Perl version 5.8.0 or later. If you don't have perl, please
 see <a href="http://www.cpan.org">http://www.cpan.org</a>.</p>
 </li>
 <li>
-<p>Perl modules Compress::Zlib (optional) for compressing log files.  Try &quot;perldoc
+<p>Perl modules Compress::Zlib (optional) for compressing log files. Try &quot;perldoc
 Compress::Zlib&quot; to see if you have this
-module.  If not, fetch it from <a href="http://www.cpan.org">http://www.cpan.org</a> and see the
+module. If not, fetch it from <a href="http://www.cpan.org">http://www.cpan.org</a> and see the
 instructions below for how to build and install them.</p>
 </li>
 <li>
@@ -291,14 +291,14 @@ with mod_perl support.</p>
 <h2><a name="step_1__getting_backupafs">Step 1: Getting BackupAFS</a></h2>
 <p>Manually fetching and installing BackupAFS is easy.
 Start by downloading the latest version from
-<a href="http://backupafs.sourceforge.net">http://backupafs.sourceforge.net</a>.  Hit the &quot;Code&quot; button,
+<a href="http://backupafs.sourceforge.net">http://backupafs.sourceforge.net</a>. Hit the &quot;Code&quot; button,
 then select the &quot;backupafs&quot; or &quot;backupafs-beta&quot; package and
 download the latest version.</p>
 <p>
 </p>
 <h2><a name="step_2__satisfying_the_dependencies">Step 2: Satisfying the Dependencies</a></h2>
 <p>Note: most information in this step is only relevant if you build
-and install BackupAFS yourself.  If you use a package provided by a
+and install BackupAFS yourself. If you use a package provided by a
 distribution, the package management system should take of installing
 any needed dependencies.</p>
 <p>First off, there are two perl modules you should install.
@@ -315,7 +315,7 @@ You can run &quot;perldoc Compress::Zlib&quot; to see if this module is installe
 
 <dd>
 <p>To support the (experimental) RSS feature you will need to install XML::RSS, also from
-<a href="http://www.cpan.org">http://www.cpan.org</a>.  There is not need to install this module if you
+<a href="http://www.cpan.org">http://www.cpan.org</a>. There is not need to install this module if you
 don't plan on using RSS. You can run &quot;perldoc XML::RSS&quot; to see if this
 module is installed.</p>
 <p>To build and install these packages you may wish to use the cpan program.
@@ -344,20 +344,20 @@ and then run these commands:</p>
 <p>
 </p>
 <h2><a name="step_3__installing_the_backupafs_software">Step 3: Installing the BackupAFS software</a></h2>
-<p>Now let's move onto BackupAFS itself.  After fetching
+<p>Now let's move onto BackupAFS itself. After fetching
 BackupAFS-1.0.0.tar.gz, run these commands as root:</p>
 <pre>
     tar zxf BackupAFS-1.0.0.tar.gz
     cd BackupAFS-1.0.0
     perl configure.pl</pre>
 <p>In the future this release might also have patches available on the
-SourceForge site.  These patch files are text files, with a name of
+SourceForge site. These patch files are text files, with a name of
 the form</p>
 <pre>
     BackupAFS-1.0.0plN.diff</pre>
-<p>where N is the patch level, eg: pl2 is patch-level 2.  These
+<p>where N is the patch level, eg: pl2 is patch-level 2. These
 patch files are cumulative: you only need apply the last patch
-file, not all the earlier patch files.  If a patch file is
+file, not all the earlier patch files. If a patch file is
 available, eg: BackupAFS-1.0.0pl2.diff, you should apply
 the patch after extracting the tar file:</p>
 <pre>
@@ -368,15 +368,15 @@ the patch after extracting the tar file:</p>
      patch -p0 &lt; ../BackupAFS-1.0.0pl2.diff
      perl configure.pl</pre>
 <p>A patch file includes comments that describe that bug fixes
-and changes.  Feel free to review it before you apply the patch.</p>
+and changes. Feel free to review it before you apply the patch.</p>
 <p>The configure.pl script also accepts command-line options if you
-wish to run it in a non-interactive manner.  It has self-contained
+wish to run it in a non-interactive manner. It has self-contained
 documentation for all the command-line options, which you can
 read with perldoc:</p>
 <pre>
     perldoc configure.pl</pre>
 <p>The configure.pl script by default
-complies with the file system hierarchy (FHS) conventions.  The
+complies with the file system hierarchy (FHS) conventions. The
 configuration files will be stored in /etc/BackupAFS
 and the log files will be stored in /var/log/BackupAFS.</p>
 <p>Note that distributions may choose to use different locations for
@@ -399,7 +399,7 @@ default settings leave group read permission on backup directories, so make
 sure the BackupAFS user's group is chosen restrictively.</p>
 <p>On this installation, this is backup.</p>
 <p>For security purposes you might choose to configure the BackupAFS
-user with the shell set to /bin/false.  Since you might need to
+user with the shell set to /bin/false. Since you might need to
 run some BackupAFS programs as the BackupAFS user for testing
 purposes, you can use the -s option to su to explicitly run
 a shell, eg:</p>
@@ -411,7 +411,7 @@ a shell, eg:</p>
 
 <dd>
 <p>You need to decide where to put the data directory, below which
-all the BackupAFS data is stored.  This needs to be a big file system.
+all the BackupAFS data is stored. This needs to be a big file system.
 Unless your largest volumes are tiny, it needs to support largefiles (&gt;2GB). You may wish to consider xfs or zfs (if available for your OS).</p>
 <p>On this installation, this is __TOPDIR__.</p>
 </dd>
@@ -425,10 +425,10 @@ should be installed, eg: __INSTALLDIR__.</p>
 <dt><strong><a name="cgi_bin_directory" class="item">CGI bin Directory</a></strong></dt>
 
 <dd>
-<p>You should decide where the BackupAFS CGI script resides.  This will
+<p>You should decide where the BackupAFS CGI script resides. This will
 usually be below Apache's cgi-bin directory.</p>
 <p>It is also possible to use a different directory and use Apache's
-&quot;&lt;Directory&gt;&quot; directive to specifiy that location.  See the Apache
+&quot;&lt;Directory&gt;&quot; directive to specifiy that location. See the Apache
 HTTP Server documentation for additional information.</p>
 <p>On this installation, this is /usr/lib/cgi-bin.</p>
 </dd>
@@ -436,7 +436,7 @@ HTTP Server documentation for additional information.</p>
 
 <dd>
 <p>A directory where BackupAFS's images are stored so that Apache can
-serve them.  You should ensure this directory is readable by Apache and
+serve them. You should ensure this directory is readable by Apache and
 create a symlink to this directory from the BackupAFS CGI bin Directory.</p>
 </dd>
 <dt><strong><a name="config_and_log_directories" class="item">Config and Log Directories</a></strong></dt>
@@ -513,11 +513,11 @@ BackupAFS reads this file in three cases:</p>
 <p>Upon startup.</p>
 </li>
 <li>
-<p>When BackupAFS is sent a HUP (-1) signal.  Assuming you installed the
+<p>When BackupAFS is sent a HUP (-1) signal. Assuming you installed the
 init.d script, you can also do this with &quot;/etc/init.d/backupafs reload&quot;.</p>
 </li>
 <li>
-<p>When the modification time of the VolumeSet-List file changes.  BackupAFS
+<p>When the modification time of the VolumeSet-List file changes. BackupAFS
 checks the modification time once during each regular wakeup.</p>
 </li>
 </ul>
@@ -546,7 +546,7 @@ for this volset. Administrators will still have full permissions.</p>
 
 <dd>
 <p>Additional user names, separated by commas and with no white space,
-can be specified.  These users will also have full permission in
+can be specified. These users will also have full permission in
 the CGI interface to stop/start/browse/restore backups for this volset.
 These users will not be sent email about this volset.</p>
 </dd>
@@ -621,12 +621,12 @@ the names of the fields and should not be edited.</p>
 </p>
 <h2><a name="step_7__cgi_interface">Step 7: CGI interface</a></h2>
 <p>The CGI interface script, <code>BackupAFS_Admin</code>, is a powerful and flexible
-way to see and control what BackupAFS is doing.  It is written for an
-Apache server.  If you don't have Apache, see <a href="http://www.apache.org">http://www.apache.org</a>.</p>
+way to see and control what BackupAFS is doing. It is written for an
+Apache server. If you don't have Apache, see <a href="http://www.apache.org">http://www.apache.org</a>.</p>
 <p>There are two options for setting up the CGI interface: standard
-mode and using mod_perl.  Mod_perl provides much higher performance
+mode and using mod_perl. Mod_perl provides much higher performance
 (around 15x) and is the best choice if your Apache was built with
-mod_perl support.  To see if your apache was built with mod_perl
+mod_perl support. To see if your apache was built with mod_perl
 run this command:</p>
 <pre>
     httpd -l | egrep mod_perl</pre>
@@ -635,9 +635,9 @@ run this command:</p>
 but &quot;apache&quot; or &quot;apache2&quot;. Those distributions will generally also
 use &quot;www-data&quot; for the Apache user account and configuration files.</p>
 <p>Using mod_perl with BackupAFS_Admin requires a dedicated Apache
-to be run as the BackupAFS user (backup).  This is
+to be run as the BackupAFS user (backup). This is
 because BackupAFS_Admin needs permission to access various files
-in BackupAFS's data directories.  In contrast, the standard
+in BackupAFS's data directories. In contrast, the standard
 installation (without mod_perl) solves this problem by having
 BackupAFS_Admin installed as setuid to the BackupAFS user, so that
 BackupAFS_Admin runs as the BackupAFS user.</p>
@@ -647,7 +647,7 @@ BackupAFS_Admin runs as the BackupAFS user.</p>
 
 <dd>
 <p>The CGI interface should have been installed by the configure.pl script
-in /usr/lib/cgi-bin/BackupAFS_Admin.  BackupAFS_Admin should have been installed
+in /usr/lib/cgi-bin/BackupAFS_Admin. BackupAFS_Admin should have been installed
 as setuid to the BackupAFS user (backup), in addition to user
 and group execute permission.</p>
 <p>You should be very careful about permissions on BackupAFS_Admin and
@@ -680,21 +680,21 @@ not require setuid to work)..</p>
 
 <dd>
 <p>The advantage of the mod_perl setup is that no setuid script is needed,
-and there is a huge performance advantage.  Not only does all the perl
+and there is a huge performance advantage. Not only does all the perl
 code need to be parsed just once, the config.pl and VolumeSet-List files, plus
-the connection to the BackupAFS server are cached between requests.  The
+the connection to the BackupAFS server are cached between requests. The
 typical speedup is around 15 times.</p>
 <p>To use mod_perl you need to run Apache as user backup.
 If you need to run multiple Apache's for different services then
 you need to create multiple top-level Apache directories, each
-with their own config file.  You can make copies of /etc/init.d/httpd
+with their own config file. You can make copies of /etc/init.d/httpd
 and use the -d option to httpd to point each http to a different
-top-level directory.  Or you can use the -f option to explicitly
-point to the config file.  Multiple Apache's will run on different
+top-level directory. Or you can use the -f option to explicitly
+point to the config file. Multiple Apache's will run on different
 Ports (eg: 80 is standard, 8080 is a typical alternative port accessed
 via <a href="http://yourhost.com:8080).">http://yourhost.com:8080).</a></p>
 <p>Inside BackupAFS's Apache http.conf file you should check the
-settings for ServerRoot, DocumentRoot, User, Group, and Port.  See 
+settings for ServerRoot, DocumentRoot, User, Group, and Port. See 
 <a href="http://httpd.apache.org/docs/server-wide.html">http://httpd.apache.org/docs/server-wide.html</a> for more details.</p>
 <p>For mod_perl, BackupAFS_Admin should not have setuid permission, so
 you should turn it off:</p>
@@ -732,16 +732,16 @@ this works (with tweaks from Michael Tuzi):</p>
         AuthUserFile /path/to/user_file
         Require valid-user
     &lt;/Directory&gt;</pre>
-<p>There are other optimizations and options with mod_perl.  For
+<p>There are other optimizations and options with mod_perl. For
 example, you can tell mod_perl to preload various perl modules,
 which saves memory compared to loading separate copies in every
-Apache process after they are forked.  See Stas's definitive
+Apache process after they are forked. See Stas's definitive
 mod_perl guide at <a href="http://perl.apache.org/guide">http://perl.apache.org/guide</a>.</p>
 </dd>
 </dl>
 <p>BackupAFS_Admin requires that users are authenticated by Apache.
 Specifically, it expects that Apache sets the REMOTE_USER environment
-variable when it runs.  There are several ways to do this.  One way
+variable when it runs. There are several ways to do this. One way
 is to create a .htaccess file in the cgi-bin directory that looks like:</p>
 <pre>
     AuthGroupFile /etc/httpd/conf/group    # &lt;--- change path as needed
@@ -754,7 +754,7 @@ httpd.conf file to enable the .htaccess file. Alternatively, everything
 can go in the Apache httpd.conf file inside a Location directive. The
 list of users and password file above can be extracted from the NIS
 passwd file.</p>
-<p>One alternative is to use LDAP.  In Apache's http.conf add these lines:</p>
+<p>One alternative is to use LDAP. In Apache's http.conf add these lines:</p>
 <pre>
     LoadModule auth_ldap_module   modules/auth_ldap.so
     AddModule auth_ldap.c</pre>
@@ -769,7 +769,7 @@ passwd file.</p>
     &lt;/Location&gt;</pre>
 <p>If you want to disable the user authentication you can set
 <a href="#_conf_cgiadminusers_">$Conf{CgiAdminUsers}</a> to '*', which allows any user to have
-full access to all VolumeSets and backups.  In this case the REMOTE_USER
+full access to all VolumeSets and backups. In this case the REMOTE_USER
 environment variable does not have to be set by Apache.</p>
 <p>Alternatively, you can force a particular user name by getting Apache
 to set REMOTE_USER, eg, to hardcode the user to www you could add
@@ -779,12 +779,12 @@ this to Apache's httpd.conf:</p>
         Setenv REMOTE_USER www
     &lt;/Location&gt;</pre>
 <p>Finally, you should also edit the config.pl file and adjust, as necessary,
-the CGI-specific settings.  They're near the end of the config file. In
+the CGI-specific settings. They're near the end of the config file. In
 particular, you should specify which users or groups have administrator
 (privileged) access: see the config settings <a href="#_conf_cgiadminusergroup_">$Conf{CgiAdminUserGroup}</a>
-and <a href="#_conf_cgiadminusers_">$Conf{CgiAdminUsers}</a>.  Also, the configure.pl script placed various
+and <a href="#_conf_cgiadminusers_">$Conf{CgiAdminUsers}</a>. Also, the configure.pl script placed various
 images into <a href="#_conf_cgiimagedir_">$Conf{CgiImageDir}</a> that BackupAFS_Admin needs to serve
-up.  You should make sure that <a href="#_conf_cgiimagedirurl_">$Conf{CgiImageDirURL}</a> is the correct
+up. You should make sure that <a href="#_conf_cgiimagedirurl_">$Conf{CgiImageDirURL}</a> is the correct
 URL for the image directory.</p>
 <p>See the section <a href="#fixing_installation_problems">Fixing installation problems</a> for suggestions on debugging the Apache authentication setup.</p>
 <p>
@@ -793,7 +793,7 @@ URL for the image directory.</p>
 <p>The installation contains an init.d backupafs script that can be copied
 to /etc/init.d so that BackupAFS can auto-start on boot.
 See init.d/README for further instructions.</p>
-<p>BackupAFS should be ready to start.  If you installed the init.d script,
+<p>BackupAFS should be ready to start. If you installed the init.d script,
 then you should be able to run BackupAFS with:</p>
 <pre>
     /etc/init.d/backupafs start</pre>
@@ -802,7 +802,7 @@ to tell BackupAFS to reload config.pl and the VolumeSet-List file.)</p>
 <p>Otherwise, just run</p>
 <pre>
      __INSTALLDIR__/bin/BackupAFS -d</pre>
-<p>as user backup.  The -d option tells BackupAFS to run as a daemon
+<p>as user backup. The -d option tells BackupAFS to run as a daemon
 (ie: it does an additional fork).</p>
 <p>Any immediate errors will be printed to stderr and BackupAFS will quit.
 Otherwise, look in /var/log/BackupAFS/LOG and verify that BackupAFS reports
@@ -812,12 +812,12 @@ it has started and all is ok.</p>
 <h2><a name="step_9__talking_to_backupafs">Step 9: Talking to BackupAFS</a></h2>
 <p>You should verify that BackupAFS is running by using <code>BackupAFS_serverMesg</code>.
 This sends a message to BackupAFS via the unix (or TCP) socket and prints
-the response.  Like all BackupAFS programs, <code>BackupAFS_serverMesg</code>
+the response. Like all BackupAFS programs, <code>BackupAFS_serverMesg</code>
 should be run as the BackupAFS user (backup), so you
 should</p>
 <pre>
     su backup</pre>
-<p>before running <code>BackupAFS_serverMesg</code>.  If the BackupAFS user is
+<p>before running <code>BackupAFS_serverMesg</code>. If the BackupAFS user is
 configured with /bin/false as the shell, you can use the -s
 option to su to explicitly run a shell, eg:</p>
 <pre>
@@ -826,14 +826,14 @@ option to su to explicitly run a shell, eg:</p>
 the -l option.</p>
 <p>You can request status information and start and stop backups using this
 interface. This socket interface is mainly provided for the CGI interface
-(and some of the BackupAFS sub-programs use it too).  But right now we just
-want to make sure BackupAFS is happy.  Each of these commands should
+(and some of the BackupAFS sub-programs use it too). But right now we just
+want to make sure BackupAFS is happy. Each of these commands should
 produce some status output:</p>
 <pre>
     __INSTALLDIR__/bin/BackupAFS_serverMesg status info
     __INSTALLDIR__/bin/BackupAFS_serverMesg status jobs
     __INSTALLDIR__/bin/BackupAFS_serverMesg status volsets</pre>
-<p>The output should be some hashes printed with Data::Dumper.  If it
+<p>The output should be some hashes printed with Data::Dumper. If it
 looks cryptic and confusing, and doesn't look like an error message,
 then all is ok.</p>
 <p>The jobs status should initially show just <code>BackupAFS_trashClean</code>.
@@ -843,13 +843,13 @@ in /etc/BackupAFS/VolumeSet-List as part of a big cryptic output line.</p>
 <pre>
     __INSTALLDIR__/bin/BackupAFS_serverMesg backup all</pre>
 <p>At this point you should make sure the CGI interface works since
-it will be much easier to see what is going on.  That's our
+it will be much easier to see what is going on. That's our
 next subject.</p>
 <p>
 </p>
 <h2><a name="step_10__checking_email_delivery">Step 10: Checking email delivery</a></h2>
 <p>The script <code>BackupAFS_sendEmail</code> sends status and error emails to
-the administrator and users.  It is usually run each night
+the administrator and users. It is usually run each night
 by <code>BackupAFS_nightly</code>.</p>
 <p>To verify that it can run sendmail and deliver email correctly
 you should ask it to send a test email to you:</p>
@@ -858,7 +858,7 @@ you should ask it to send a test email to you:</p>
     __INSTALLDIR__/bin/BackupAFS_sendEmail -u MYNAME@MYDOMAIN.COM</pre>
 <p><code>BackupAFS_sendEmail</code> also takes a -c option that checks if BackupAFS
 is running, and it sends an email to <a href="#_conf_emailadminusername_">$Conf{EMailAdminUserName}</a>
-if it is not.  That can be used as a keep-alive check by adding</p>
+if it is not. That can be used as a keep-alive check by adding</p>
 <pre>
     __INSTALLDIR__/bin/BackupAFS_sendEmail -c</pre>
 <p>to backup's cron.</p>
@@ -872,18 +872,18 @@ message instead of invoking sendmail to deliver the message.</p>
 
 <dd>
 <p>If there is a volset that no longer needs to be backed up (eg: some
-volumes are renamed or deleted) you have two choices.  First, you can keep the backups accessible
-and browsable, but disable all new backups.  Alternatively, you can
+volumes are renamed or deleted) you have two choices. First, you can keep the backups accessible
+and browsable, but disable all new backups. Alternatively, you can
 completely remove the VolumeSet and all its backups.</p>
 <p>To disable backups for a volset <a href="#_conf_backupsdisable_">$Conf{BackupsDisable}</a> can be
 set to two different values in that VolumeSet's per-volset config.pl file:</p>
 <ol>
 <li>
-<p>Don't do any regular backups on this volset.  Manually
+<p>Don't do any regular backups on this volset. Manually
 requested backups (via the CGI interface) will still occur.</p>
 </li>
 <li>
-<p>Don't do any backups on this volset.  Manually requested
+<p>Don't do any backups on this volset. Manually requested
 backups (via the CGI interface) will be ignored.</p>
 </li>
 </ol>
@@ -893,7 +893,7 @@ backups (via the CGI interface) will be ignored.</p>
 and restorable.</p>
 <p>To completely remove a VolumeSet and all its backups, you should remove its
 entry in the conf/VolumeSet-List file, and then delete the __TOPDIR__/volsets/<em>$volset</em>
-directory.  Whenever you change the VolumeSet-List file, you should send
+directory. Whenever you change the VolumeSet-List file, you should send
 BackupAFS a HUP (-1) signal so that it re-reads the VolumeSet-List file.
 If you don't do this, BackupAFS will automatically re-read the
 VolumeSet-List file at the next regular wakeup.</p>
@@ -931,11 +931,11 @@ VolumeSet-List file at the next regular wakeup.</p>
 <h2><a name="configuration_and_host_editor">Configuration and Host Editor</a></h2>
 <p>The CGI interface has a complete configuration and VolumeSet editor.
 Only the administrator can edit the main configuration settings
-and VolumeSets.  The edit links are in the left navigation bar.</p>
+and VolumeSets. The edit links are in the left navigation bar.</p>
 <p>When changes are made to any parameter a &quot;Save&quot; button appears
-at the top of the page.  If you are editing a text box you will
+at the top of the page. If you are editing a text box you will
 need to click outside of the text box to make the Save button
-appear.  If you don't select Save then the changes won't be saved.</p>
+appear. If you don't select Save then the changes won't be saved.</p>
 <p>The volset-specific configuration can be edited from the VolumeSet Summary
 page using the link in the left navigation bar.
 The administrator can edit any of the volset-specific
@@ -947,9 +947,9 @@ If you unselect &quot;override&quot; then the setting is removed from
 the volset-specific configuration, and the main configuration
 file is displayed.</p>
 <p>User's can edit their volset-specific configuration if enabled
-via <a href="#_conf_cgiuserconfigeditenable_">$Conf{CgiUserConfigEditEnable}</a>.  The specific subset
+via <a href="#_conf_cgiuserconfigeditenable_">$Conf{CgiUserConfigEditEnable}</a>. The specific subset
 of configuration settings that a user can edit is specified
-with <a href="#_conf_cgiuserconfigedit_">$Conf{CgiUserConfigEdit}</a>.  It is recommended to make this
+with <a href="#_conf_cgiuserconfigedit_">$Conf{CgiUserConfigEdit}</a>. It is recommended to make this
 list short as possible (you probably don't want your users saving
 hundreds of full backups) and <strong>it is essential that they can't edit any
 of the Cmd configuration settings, otherwise they can specify
@@ -958,12 +958,12 @@ user!</strong></p>
 <p>
 </p>
 <h2><a name="rss">RSS</a></h2>
-<p>BackupAFS supports a very basic RSS feed.  Provided you have the
+<p>BackupAFS supports a very basic RSS feed. Provided you have the
 XML::RSS perl module installed, a URL similar to this will
 provide RSS information:</p>
 <pre>
     <a href="http://localhost/cgi-bin/BackupAFS/BackupAFS_Admin?action=rss">http://localhost/cgi-bin/BackupAFS/BackupAFS_Admin?action=rss</a></pre>
-<p>This feature is experimental.  The information included will
+<p>This feature is experimental. The information included will
 probably change.</p>
 <p>
 <a href="#__index__"><small>Back to Top</small></a>
@@ -991,7 +991,7 @@ activity. It maintains queues of pending backup requests, user backup
 requests and administrative commands. Based on the configuration various
 requests will be executed simultaneously.</p>
 <p>As specified by <a href="#_conf_wakeupschedule_">$Conf{WakeupSchedule}</a>, BackupAFS wakes up periodically
-to queue backups on all the VolumeSets.  This is a four step process:</p>
+to queue backups on all the VolumeSets. This is a four step process:</p>
 <ol>
 <li>
 <p>For each VolumeSet backup requests are queued on the background command queue.</p>
@@ -1059,7 +1059,7 @@ below for more details.</p>
 
 <dd>
 <p>The directory /etc/BackupAFS/volsets contains per-volumeset configuration files
-that override settings in the main configuration file.  Each file
+that override settings in the main configuration file. Each file
 is named /etc/BackupAFS/volset/VOLSET.pl, where VOLSET is the name of the VolumeSet.</p>
 </dd>
 </dl>
@@ -1078,7 +1078,7 @@ of BackupAFS) contains:</p>
 <dt><strong><a name="log_0_or_log_0_z" class="item">LOG.0 or LOG.0.z</a></strong></dt>
 
 <dd>
-<p>Yesterday's log file output.  Log files are aged daily and compressed
+<p>Yesterday's log file output. Log files are aged daily and compressed
 (if compression is enabled), and old LOG files are deleted.</p>
 </dd>
 <dt><strong><a name="backupafs_pid" class="item">BackupAFS.pid</a></strong></dt>
@@ -1091,13 +1091,13 @@ of BackupAFS) contains:</p>
 <dd>
 <p>A summary of BackupAFS's status written periodically by BackupAFS so
 that certain state information can be maintained if BackupAFS is
-restarted.  Should not be edited.</p>
+restarted. Should not be edited.</p>
 </dd>
 <dt><strong><a name="useremailinfo_pl" class="item">UserEmailInfo.pl</a></strong></dt>
 
 <dd>
 <p>A summary of what email was last sent to each user, and when the
-last email was sent.  Should not be edited.</p>
+last email was sent. Should not be edited.</p>
 </dd>
 </dl>
 </dd>
@@ -1120,7 +1120,7 @@ __TOPDIR__/trash for later removal by BackupAFS_trashClean.</p>
 
 <dd>
 <p>For each VolumeSet, all the backups for that volset are stored below
-the directory __TOPDIR__/volsets/<em>VolumeSet_name</em>.  This directory contains the
+the directory __TOPDIR__/volsets/<em>VolumeSet_name</em>. This directory contains the
 following files:</p>
 <dl>
 <dt><strong><a name="log2" class="item">LOG</a></strong></dt>
@@ -1131,7 +1131,7 @@ following files:</p>
 <dt><strong><a name="log_ddmmyyyy_or_log_ddmmyyyy_z" class="item">LOG.DDMMYYYY or LOG.DDMMYYYY.z</a></strong></dt>
 
 <dd>
-<p>Last month's log file.  Log files are aged monthly and compressed
+<p>Last month's log file. Log files are aged monthly and compressed
 (if compression is enabled), and old LOG files are deleted.
 In earlier versions of BackupAFS these files used to have
 a suffix of 0, 1, ....</p>
@@ -1144,7 +1144,7 @@ a suffix of 0, 1, ....</p>
 <dt><strong><a name="new" class="item">new</a></strong></dt>
 
 <dd>
-<p>Subdirectory in which the current backup is stored.  This
+<p>Subdirectory in which the current backup is stored. This
 directory is renamed if the backup succeeds.</p>
 </dd>
 <dt><strong><a name="xferlog_or_xferlog_z" class="item">XferLOG or XferLOG.z</a></strong></dt>
@@ -1173,20 +1173,20 @@ why. This file is in Data::Dumper format. <strong>Note that the restore numbers 
 <dt><strong><a name="restorelog_nnn_z" class="item">RestoreLOG.nnn.z</a></strong></dt>
 
 <dd>
-<p>Output from smbclient, tar or rsync during restore #nnn.  (Note that the restore
+<p>Output from smbclient, tar or rsync during restore #nnn. (Note that the restore
 numbers are not related to the backup number.)</p>
 </dd>
 <dt><strong><a name="backups" class="item">backups</a></strong></dt>
 
 <dd>
 <p>A tab-delimited ascii table listing information about each successful
-backup, one per row.  The columns are:</p>
+backup, one per row. The columns are:</p>
 <dl>
 <dt><strong><a name="num" class="item">num</a></strong></dt>
 
 <dd>
 <p>The backup number, an integer that starts at 0 and increments
-for each successive backup.  The corresponding backup is stored
+for each successive backup. The corresponding backup is stored
 in the directory num (eg: if this field is 5, then the backup is
 stored in __TOPDIR__/volsets/$VolumeSet/5).</p>
 </dd>
@@ -1258,7 +1258,7 @@ stored in __TOPDIR__/volsets/$VolumeSet/5).</p>
 <dt><strong><a name="compress" class="item">compress</a></strong></dt>
 
 <dd>
-<p>The compression level used on this backup.  Zero or empty means no
+<p>The compression level used on this backup. Zero or empty means no
 compression.</p>
 </dd>
 <dt><strong><a name="sizeexistcomp" class="item">sizeExistComp</a></strong></dt>
@@ -1274,7 +1274,7 @@ compression.</p>
 <dt><strong><a name="nofill" class="item">noFill</a></strong></dt>
 
 <dd>
-<p>Set if this backup has not been filled in with the most recent previous filled or full backup.  This will/should always be set to 1 in BackupAFS.</p>
+<p>Set if this backup has not been filled in with the most recent previous filled or full backup. This will/should always be set to 1 in BackupAFS.</p>
 </dd>
 <dt><strong><a name="fillfromnum" class="item">fillFromNum</a></strong></dt>
 
@@ -1295,7 +1295,7 @@ number of the backup that it was filled from. (BackupAFS does not use this field
 <dt><strong><a name="level" class="item">level</a></strong></dt>
 
 <dd>
-<p>The level of this dump.  A full dump is level 0.  Incrementals are an integer 1-9.</p>
+<p>The level of this dump. A full dump is level 0. Incrementals are an integer 1-9.</p>
 </dd>
 </dl>
 </dd>
@@ -1303,7 +1303,7 @@ number of the backup that it was filled from. (BackupAFS does not use this field
 
 <dd>
 <p>A tab-delimited ascii table listing information about each requested
-restore, one per row.  The columns are:</p>
+restore, one per row. The columns are:</p>
 <dl>
 <dt><strong>num</strong></dt>
 
@@ -1365,7 +1365,7 @@ RestoreLOG.nnn.z file), unrelated to the backup number.</p>
 (and in BackupPC), each node of
 a path is preceded by &quot;f&quot; (mnemonic: file), and special characters
 (\n, \r, % and /) are URI-encoded as &quot;%xx&quot;, where xx is the ascii
-character's hex value.  So c:/craig/example.txt is now stored as
+character's hex value. So c:/craig/example.txt is now stored as
 fc/fcraig/fexample.txt.</p>
 <p>This was done mainly so meta-data could be stored alongside the backup
 files without name collisions. In particular, the attributes for the
@@ -1414,11 +1414,11 @@ the VolumeSet-List file in three cases:</p>
 <p>Upon startup.</p>
 </li>
 <li>
-<p>When BackupAFS is sent a HUP (-1) signal.  Assuming you installed the 
+<p>When BackupAFS is sent a HUP (-1) signal. Assuming you installed the 
 init.d script, you can also do this with &quot;/etc/init.d/backupafs reload&quot;.</p>
 </li>
 <li>
-<p>When the modification time of config.pl file changes.  BackupAFS
+<p>When the modification time of config.pl file changes. BackupAFS
 checks the modification time once during each regular wakeup.</p>
 </li>
 </ul>
@@ -1438,8 +1438,8 @@ is read whenever it is needed by BackupAFS_dump, BackupAFS_compress and others.<
 <h1><a name="configuration_parameters">Configuration Parameters</a></h1>
 <p>The configuration parameters are divided into five general groups.
 The first group (general server configuration) provides general
-configuration for BackupAFS.  The next two groups describe what to
-backup, when to do it, and how long to keep it.  The fourth group
+configuration for BackupAFS. The next two groups describe what to
+backup, when to do it, and how long to keep it. The fourth group
 are settings for email reminders, and the final group contains
 settings for the CGI interface.</p>
 <p>All configuration settings in the second through fifth groups can
@@ -1457,7 +1457,7 @@ be overridden by the per-VolumeSet config.pl file.</p>
 
 <dd>
 <p>TCP port number on which the BackupAFS server listens for and accepts
-connections.  Normally this should be disabled (set to -1).  The TCP
+connections. Normally this should be disabled (set to -1). The TCP
 port is only needed if apache runs on a different machine from BackupAFS.
 In that case, set this to any spare port number over 1024 (eg: 2359).
 If you enable the TCP port, make sure you set <a href="#_conf_servermesgsecret_">$Conf{ServerMesgSecret}</a>
@@ -1466,7 +1466,7 @@ too!</p>
 <dt><strong><a name="_conf_servermesgsecret_" class="item">$Conf{ServerMesgSecret} = '';</a></strong></dt>
 
 <dd>
-<p>Shared secret to make the TCP port secure.  Set this to a hard to guess
+<p>Shared secret to make the TCP port secure. Set this to a hard to guess
 string if you enable the TCP port (ie: <a href="#_conf_serverport_">$Conf{ServerPort}</a> &gt; 0).</p>
 <p>To avoid possible attacks via the TCP socket interface, every client
 message is protected by an MD5 digest. The MD5 digest includes four
@@ -1475,19 +1475,19 @@ items:
   - a sequence number that increments for each message
   - a shared secret that is stored in <a href="#_conf_servermesgsecret_">$Conf{ServerMesgSecret}</a>
   - the message itself.</p>
-<p>The message is sent in plain text preceded by the MD5 digest.  A
+<p>The message is sent in plain text preceded by the MD5 digest. A
 snooper can see the plain-text seed sent by BackupAFS and plain-text
 message from the client, but cannot construct a valid MD5 digest since
-the secret <a href="#_conf_servermesgsecret_">$Conf{ServerMesgSecret}</a> is unknown.  A replay attack is
+the secret <a href="#_conf_servermesgsecret_">$Conf{ServerMesgSecret}</a> is unknown. A replay attack is
 not possible since the seed changes on a per-connection and
 per-message basis.</p>
 </dd>
 <dt><strong><a name="_conf_mypath_" class="item">$Conf{MyPath} = '/bin';</a></strong></dt>
 
 <dd>
-<p>PATH setting for BackupAFS.  An explicit value is necessary
-for taint mode.  Value shouldn't matter too much since
-all execs use explicit paths.  However, taint mode in perl
+<p>PATH setting for BackupAFS. An explicit value is necessary
+for taint mode. Value shouldn't matter too much since
+all execs use explicit paths. However, taint mode in perl
 will complain if this directory is world writable.</p>
 </dd>
 <dt><strong><a name="_conf_umaskmode_" class="item">$Conf{UmaskMode} = 027;</a></strong></dt>
@@ -1501,7 +1501,7 @@ group write.</p>
 
 <dd>
 <p>Times at which we wake up, check all the volumesets, and schedule necessary
-backups.  Times are measured in hours since midnight.  Can be
+backups. Times are measured in hours since midnight. Can be
 fractional if necessary (eg: 4.25 means 4:15am).</p>
 <p>If the volsets you are backing up are always available (ie, not at the end
 of a dialup link, or are not in another country), you might only have one wakeup each night.</p>
@@ -1522,7 +1522,7 @@ of regular backups to run).</p>
 <dt><strong><a name="_conf_maxbackups_" class="item">$Conf{MaxBackups} = 4;</a></strong></dt>
 
 <dd>
-<p>Maximum number of simultaneous backups to run.  If there
+<p>Maximum number of simultaneous backups to run. If there
 are no user backup requests then this is the maximum number
 of simultaneous backups.</p>
 </dd>
@@ -1553,10 +1553,10 @@ BackupAFS_nightly) are run at.</p>
 <dd>
 <p>How many BackupAFS_nightly processes to run in parallel.</p>
 <p>Each night, at the first wakeup listed in <a href="#_conf_wakeupschedule_">$Conf{WakeupSchedule}</a>,
-BackupAFS_nightly is run.  Its job is to remove unneeded files
-in the pool, ie: files that only have one link.  To avoid race
+BackupAFS_nightly is run. Its job is to remove unneeded files
+in the pool, ie: files that only have one link. To avoid race
 conditions, BackupAFS_nightly and BackupAFS_compress cannot run at
-the same time.  Starting in v1.0.0, BackupAFS_nightly can run
+the same time. Starting in v1.0.0, BackupAFS_nightly can run
 concurrently with backups (BackupAFS_dump).</p>
 <p>So to reduce the elapsed time, you might want to increase this
 setting to run several BackupAFS_nightly processes in parallel
@@ -1571,7 +1571,7 @@ setting to run several BackupAFS_nightly processes in parallel
 
 <dd>
 <p>Maximum number of log files we keep around in log directory.
-These files are aged nightly.  A setting of 14 means the log
+These files are aged nightly. A setting of 14 means the log
 directory will contain about 2 weeks of old log files, in
 particular at most the files LOG, LOG.0, LOG.1, ... LOG.13
 (except today's LOG, these files will have a .z extension if
@@ -1582,13 +1582,13 @@ while you will have to manually remove the older log files.</p>
 <dt><strong><a name="_conf_dfpath_" class="item">$Conf{DfPath} = '';</a></strong></dt>
 
 <dd>
-<p>Full path to the df command.  Security caution: normal users
+<p>Full path to the df command. Security caution: normal users
 should not allowed to write to this file or directory.</p>
 </dd>
 <dt><strong><a name="_conf_dfcmd_" class="item">$Conf{DfCmd} = '$dfPath $topDir';</a></strong></dt>
 
 <dd>
-<p>Command to run df.  The following variables are substituted at run-time:</p>
+<p>Command to run df. The following variables are substituted at run-time:</p>
 <pre>
   $dfPath      path to df (<a href="#_conf_dfpath_">$Conf{DfPath}</a>)
   $topDir      top-level BackupAFS data directory</pre>
@@ -1629,7 +1629,7 @@ usage exceeds this number.</p>
 
 <dd>
 <p>How long BackupAFS_trashClean sleeps in seconds between each check
-of the trash directory.  Once every 5 minutes should be reasonable.</p>
+of the trash directory. Once every 5 minutes should be reasonable.</p>
 </dd>
 <dt><strong><a name="_conf_backupafsuser_" class="item">$Conf{BackupAFSUser} = '';</a></strong></dt>
 
@@ -1654,11 +1654,11 @@ of the trash directory.  Once every 5 minutes should be reasonable.</p>
   LogDir     - where log files and other transient information
   InstallDir - where the bin, lib and doc installation dirs reside.
                Note: you cannot change this value since all the
-               perl scripts include this path.  You must reinstall
+               perl scripts include this path. You must reinstall
                with configure.pl to change InstallDir.
   CgiDir     - Apache CGI directory for BackupAFS_Admin</pre>
 <p>Note: it is STRONGLY recommended that you don't change the
-values here.  These are set at installation time and are here
+values here. These are set at installation time and are here
 for reference and are used during upgrades.</p>
 <p>Instead of changing TopDir here it is recommended that you use
 a symbolic link to the new location, or mount the new BackupAFS
@@ -1668,9 +1668,9 @@ store at the existing <a href="#_conf_topdir_">$Conf{TopDir}</a> setting.</p>
 
 <dd>
 <p>Whether BackupAFS and the CGI script BackupAFS_Admin verify that they
-are really running as user <a href="#_conf_backupafsuser_">$Conf{BackupAFSUser}</a>.  If this flag is set
+are really running as user <a href="#_conf_backupafsuser_">$Conf{BackupAFSUser}</a>. If this flag is set
 and the effective user id (euid) differs from <a href="#_conf_backupafsuser_">$Conf{BackupAFSUser}</a>
-then both scripts exit with an error.  This catches cases where
+then both scripts exit with an error. This catches cases where
 BackupAFS might be accidently started as root or the wrong user,
 or if the CGI script is not installed correctly.</p>
 </dd>
@@ -1686,7 +1686,7 @@ Can be a list (array ref) of module names to load at startup.</p>
 
 <dd>
 <p>Path to init.d script and command to use that script to start the
-server from the CGI interface.  The following variables are substituted
+server from the CGI interface. The following variables are substituted
 at run-time:</p>
 <pre>
   $sshPath           path to ssh (<a href="#_conf_sshpath_">$Conf{SshPath}</a>)
@@ -1729,21 +1729,21 @@ will make the actual backup interval a bit longer.</p>
 <dt><strong><a name="_conf_fullkeepcnt_" class="item">$Conf{FullKeepCnt} = 1;</a></strong></dt>
 
 <dd>
-<p>Number of full backups to keep.  Must be &gt;= 1.</p>
+<p>Number of full backups to keep. Must be &gt;= 1.</p>
 <p>In the steady state, each time a full backup completes successfully
-the oldest one is removed.  If this number is decreased, the
+the oldest one is removed. If this number is decreased, the
 extra old backups will be removed.</p>
 <p>If filling of incremental dumps is off the oldest backup always
-has to be a full (ie: filled) dump.  This might mean one or two
+has to be a full (ie: filled) dump. This might mean one or two
 extra full dumps are kept until the oldest incremental backups expire.</p>
-<p>Exponential backup expiry is also supported.  This allows you to specify:</p>
+<p>Exponential backup expiry is also supported. This allows you to specify:</p>
 <pre>
   - num fulls to keep at intervals of 1 * <a href="#_conf_fullperiod_">$Conf{FullPeriod}</a>, followed by
   - num fulls to keep at intervals of 2 * <a href="#_conf_fullperiod_">$Conf{FullPeriod}</a>,
   - num fulls to keep at intervals of 4 * <a href="#_conf_fullperiod_">$Conf{FullPeriod}</a>,
   - num fulls to keep at intervals of 8 * <a href="#_conf_fullperiod_">$Conf{FullPeriod}</a>,
   - num fulls to keep at intervals of 16 * <a href="#_conf_fullperiod_">$Conf{FullPeriod}</a>,</pre>
-<p>and so on.  This works by deleting every other full as each expiry
+<p>and so on. This works by deleting every other full as each expiry
 boundary is crossed.</p>
 <p>Exponential expiry is specified using an array for <a href="#_conf_fullkeepcnt_">$Conf{FullKeepCnt}</a>:</p>
 <pre>
@@ -1764,7 +1764,7 @@ backups at 4 week intervals, eg:</p>
    full 7  1 week old     /
    full 8  current       /</pre>
 <p>On a given week the spacing might be less than shown as each backup
-ages through each expiry period.  For example, one week later, a
+ages through each expiry period. For example, one week later, a
 new full is completed and the oldest is deleted, giving:</p>
 <pre>
    full 0 16 weeks old   \
@@ -1777,7 +1777,7 @@ new full is completed and the oldest is deleted, giving:</p>
    full 7  1 week old     /
    full 8  current       /</pre>
 <p>You can specify 0 as a count (except in the first entry), and the
-array can be as long as you wish.  For example:</p>
+array can be as long as you wish. For example:</p>
 <pre>
   <a href="#_conf_fullkeepcnt_">$Conf{FullKeepCnt}</a> = [4, 0, 4, 0, 0, 2];</pre>
 <p>This will keep 10 full dumps, 4 most recent at 1 * <a href="#_conf_fullperiod_">$Conf{FullPeriod}</a>,
@@ -1795,7 +1795,7 @@ the four most recent full dumps:</p>
 <dt><strong><a name="_conf_fullagemax_" class="item">$Conf{FullAgeMax} = 90;</a></strong></dt>
 
 <dd>
-<p>Very old full backups are removed after <a href="#_conf_fullagemax_">$Conf{FullAgeMax}</a> days.  However,
+<p>Very old full backups are removed after <a href="#_conf_fullagemax_">$Conf{FullAgeMax}</a> days. However,
 we keep at least <a href="#_conf_fullkeepcntmin_">$Conf{FullKeepCntMin}</a> full backups no matter how old
 they are.</p>
 <p>Note that <a href="#_conf_fullagemax_">$Conf{FullAgeMax}</a> will be increased to <a href="#_conf_fullkeepcnt_">$Conf{FullKeepCnt}</a>
@@ -1805,9 +1805,9 @@ full backups to exceed <a href="#_conf_fullagemax_">$Conf{FullAgeMax}</a>.</p>
 <dt><strong><a name="_conf_incrkeepcnt_" class="item">$Conf{IncrKeepCnt} = 6;</a></strong></dt>
 
 <dd>
-<p>Number of incremental backups to keep.  Must be &gt;= 1.</p>
+<p>Number of incremental backups to keep. Must be &gt;= 1.</p>
 <p>In the steady state, each time an incr backup completes successfully
-the oldest one is removed.  If this number is decreased, the
+the oldest one is removed. If this number is decreased, the
 extra old backups will be removed.</p>
 </dd>
 <dt><strong><a name="_conf_incrkeepcntmin_" class="item">$Conf{IncrKeepCntMin} = 1;</a></strong></dt>
@@ -1822,25 +1822,25 @@ matter how old they are.</p>
 <dt><strong><a name="_conf_incrlevels_" class="item">$Conf{IncrLevels} = [1];</a></strong></dt>
 
 <dd>
-<p>Level of each incremental.  &quot;Level&quot; follows the terminology
-of <code>dump(1)</code>.  A full backup has level 0.  A new incremental
+<p>Level of each incremental. &quot;Level&quot; follows the terminology
+of <code>dump(1)</code>. A full backup has level 0. A new incremental
 of level N will backup all files that have changed since
 the most recent backup of a lower level.</p>
 <p>The entries of <a href="#_conf_incrlevels_">$Conf{IncrLevels}</a> apply in order to each
-incremental after each full backup.  It wraps around until
-the next full backup.  For example, these two settings
+incremental after each full backup. It wraps around until
+the next full backup. For example, these two settings
 have the same effect:</p>
 <pre>
       <a href="#_conf_incrlevels_">$Conf{IncrLevels}</a> = [1, 2, 3];
       <a href="#_conf_incrlevels_">$Conf{IncrLevels}</a> = [1, 2, 3, 1, 2, 3];</pre>
 <p>This means the 1st and 4th incrementals (level 1) go all
-the way back to the full.  The 2nd and 3rd (and 5th and
+the way back to the full. The 2nd and 3rd (and 5th and
 6th) backups just go back to the immediate preceeding
 incremental.</p>
 <p>Specifying a sequence of multi-level incrementals will
 usually mean more than <a href="#_conf_incrkeepcnt_">$Conf{IncrKeepCnt}</a> incrementals will
 need to be kept, since lower level incrementals are needed
-to merge a complete view of a backup.  For example, with</p>
+to merge a complete view of a backup. For example, with</p>
 <pre>
       <a href="#_conf_fullperiod_">$Conf{FullPeriod}</a>  = 7;
       <a href="#_conf_incrperiod_">$Conf{IncrPeriod}</a>  = 1;
@@ -1862,12 +1862,12 @@ to merge a complete view of a backup.  For example, with</p>
       backup #11 (incr, level 4)
       backup #12 (incr, level 5, newest)</pre>
 <p>Backup #1 (the oldest level 1 incremental) can't be deleted
-since backups 2..6 depend on it.  Those 6 incrementals can't
+since backups 2..6 depend on it. Those 6 incrementals can't
 all be deleted since that would only leave 5 (#8..12).
 When the next incremental happens (level 6), the complete
 set of 6 older incrementals (#1..6) will be deleted, since
 that maintains the required number (<a href="#_conf_incrkeepcnt_">$Conf{IncrKeepCnt}</a>)
-of incrementals.  This situation is reduced if you set
+of incrementals. This situation is reduced if you set
 shorter chains of multi-level incrementals, eg:</p>
 <pre>
       <a href="#_conf_incrlevels_">$Conf{IncrLevels}</a>  = [1, 2, 3];</pre>
@@ -1891,7 +1891,7 @@ changed since the last full.</p>
 <dt><strong><a name="_conf_backupsdisable_" class="item">$Conf{BackupsDisable} = 0;</a></strong></dt>
 
 <dd>
-<p>Disable all full and incremental backups.  These settings are
+<p>Disable all full and incremental backups. These settings are
 useful for a client that is no longer being backed up
 (eg: a retired machine), but you wish to keep the last
 backups available for browsing or restoring to other machines.</p>
@@ -1899,29 +1899,29 @@ backups available for browsing or restoring to other machines.</p>
 <pre>
   0    Backups are enabled.</pre>
 <pre>
-  1    Don't do any regular backups on this client.  Manually
+  1    Don't do any regular backups on this client. Manually
        requested backups (via the CGI interface) will still occur.</pre>
 <pre>
-  2    Don't do any backups on this client.  Manually requested
+  2    Don't do any backups on this client. Manually requested
        backups (via the CGI interface) will be ignored.</pre>
 </dd>
 <dt><strong><a name="_conf_restoreinfokeepcnt_" class="item">$Conf{RestoreInfoKeepCnt} = 10;</a></strong></dt>
 
 <dd>
-<p>Number of restore logs to keep.  BackupAFS remembers information about
-each restore request.  This number per client will be kept around before
+<p>Number of restore logs to keep. BackupAFS remembers information about
+each restore request. This number per client will be kept around before
 the oldest ones are pruned.</p>
 <p>Note: files/dirs downloaded via the browser don't count as
-restores.  Only the first restore option (where the volumes
+restores. Only the first restore option (where the volumes
 are restored to AFS) count as restores that are logged.</p>
 </dd>
 <dt><strong><a name="_conf_blackoutperiods_" class="item">$Conf{BlackoutPeriods} = [ ... ];</a></strong></dt>
 
 <dd>
-<p>One or more blackout periods can be specified.  If a client is
+<p>One or more blackout periods can be specified. If a client is
 subject to blackout then no regular (non-manual) backups will
 be started during any of these periods (already-running dumps
-will not be interruped, however).  hourBegin and hourEnd
+will not be interruped, however). hourBegin and hourEnd
 specify hours from midnight and weekDays is a list of days of
 the week where 0 is Sunday, 1 is Monday etc.</p>
 <p>For example:</p>
@@ -1959,7 +1959,7 @@ Saturday night.</p>
 <dd>
 <p>A backup of a share that has zero files is considered fatal. This is
 used to catch miscellaneous Xfer errors that result in no files being
-backed up.  If you have shares that might be empty (and therefore an
+backed up. If you have shares that might be empty (and therefore an
 empty backup is valid) you should set this flag to 0. BackupAFS does not
 currently use this setting.</p>
 </dd>
@@ -1979,14 +1979,14 @@ is only one valid XferMethod in BackupAFS:</p>
 <dt><strong><a name="_conf_xferloglevel_" class="item">$Conf{XferLogLevel} = 1;</a></strong></dt>
 
 <dd>
-<p>Level of verbosity in Xfer log files.  0 means be quiet, 1 will give
+<p>Level of verbosity in Xfer log files. 0 means be quiet, 1 will give
 will give one line per file, 2 will also show skipped files on
 incrementals, higher values give more output.</p>
 </dd>
 <dt><strong><a name="_conf_pingpath_" class="item">$Conf{PingPath} = '';</a></strong></dt>
 
 <dd>
-<p>Full path to the ping command.  Security caution: normal users
+<p>Full path to the ping command. Security caution: normal users
 should not be allowed to write to this file or directory.</p>
 <p>If you want to disable ping checking, set this to some program
 that exits with 0 status, eg:</p>
@@ -1996,12 +1996,12 @@ that exits with 0 status, eg:</p>
 <dt><strong><a name="_conf_pingcmd_" class="item">$Conf{PingCmd} = '$pingPath -c 1 $host';</a></strong></dt>
 
 <dd>
-<p>Ping command.  The following variables are substituted at run-time:</p>
+<p>Ping command. The following variables are substituted at run-time:</p>
 <pre>
   $pingPath      path to ping (<a href="#_conf_pingpath_">$Conf{PingPath}</a>)
   $host          host name</pre>
 <p>Wade Brown reports that on solaris 2.6 and 2.7 ping -s returns the wrong
-exit status (0 even on failure).  Replace with &quot;ping $host 1&quot;, which
+exit status (0 even on failure). Replace with &quot;ping $host 1&quot;, which
 gets the correct exit status but we don't get the round-trip time.</p>
 <p>Note: all Cmds are executed directly without a shell, so the prog name
 needs to be a full path and you can't include shell syntax like
@@ -2015,10 +2015,10 @@ redirection and pipes; put that in a script if you need it.</p>
 <dt><strong><a name="_conf_compresslevel_" class="item">$Conf{CompressLevel} = 0;</a></strong></dt>
 
 <dd>
-<p>Compression level to use on files.  0 means no compression.  Compression
+<p>Compression level to use on files. 0 means no compression. Compression
 levels can be from 1 (least cpu time, worst compression) to
-9 (most cpu time, better compression).  The recommended value
-is 3 or 4.  Changing to 5, for example, will take maybe 20% more cpu time
+9 (most cpu time, better compression). The recommended value
+is 3 or 4. Changing to 5, for example, will take maybe 20% more cpu time
 and will get another 2-3% additional compression. See the gzip
 documentation for more information about compression levels.</p>
 <p>Note: compression requires either 'gzip' or 'pigz' be installed and executable by the backupafs user. If the requested binary can't be found then <a href="#_conf_compresslevel_">$Conf{CompressLevel}</a> is forced to 0 (compression off).</p>
@@ -2037,9 +2037,9 @@ methods (vos).</p>
 
 <dd>
 <p>Maximum number of log files we keep around in each PC's directory
-(ie: volsets/$volset).  These files are aged monthly.  A setting of 12
+(ie: volsets/$volset). These files are aged monthly. A setting of 12
 means there will be at most the files LOG, LOG.0, LOG.1, ... LOG.11
-in the volsets/$volset directory (ie: about a years worth).  (Except this
+in the volsets/$volset directory (ie: about a years worth). (Except this
 month's LOG, these files will have a .z extension if compression
 is on).</p>
 <p>If you decrease this number after BackupAFS has been running for a
@@ -2061,7 +2061,7 @@ while you will have to manually remove the older log files.</p>
 <p>Optional commands to run before and after dumps and restores,
 and also before and after each volume of a dump.</p>
 <p>Stdout from these commands will be written to the Xfer (or Restore)
-log file.  One example of using these commands would be to
+log file. One example of using these commands would be to
 shut down and restart a database process.</p>
 <p><strong>These commands have not been tested with BackupAFS; they are a holdover from BackupPC.</strong></p>
 <pre>
@@ -2116,12 +2116,12 @@ redirection and pipes; put that in a script if you need it.</p>
 PostUserCmd is checked.</p>
 <p>If set and the Dump/Restore/Archive Pre/Post UserCmd
 returns a non-zero exit status then the dump/restore/archive
-is aborted.  To maintain backward compatibility (where
+is aborted. To maintain backward compatibility (where
 the exit status in early versions was always ignored),
 this flag defaults to 0.</p>
 <p>If this flag is set and the Dump/Restore/Archive PreUserCmd
 fails then the matching Dump/Restore/Archive PostUserCmd is
-not executed.  If DumpPreShareCmd returns a non-exit status,
+not executed. If DumpPreShareCmd returns a non-exit status,
 then DumpPostShareCmd is not executed, but the DumpPostUserCmd
 is still run (since DumpPreUserCmd must have previously
 succeeded).</p>
@@ -2137,7 +2137,7 @@ of some database error.</p>
 <dt><strong><a name="_conf_sendmailpath_" class="item">$Conf{SendmailPath} = '';</a></strong></dt>
 
 <dd>
-<p>Full path to the sendmail command.  Security caution: normal users
+<p>Full path to the sendmail command. Security caution: normal users
 should not allowed to write to this file or directory.</p>
 </dd>
 <dt><strong><a name="_conf_emailnotifymindays_" class="item">$Conf{EMailNotifyMinDays} = 2.5;</a></strong></dt>
@@ -2145,14 +2145,14 @@ should not allowed to write to this file or directory.</p>
 <dd>
 <p>Minimum period between consecutive emails to a single user.
 This tries to keep annoying email to users to a reasonable
-level.  Email checks are done nightly, so this number is effectively
+level. Email checks are done nightly, so this number is effectively
 rounded up (ie: 2.5 means a user will never receive email more
 than once every 3 days).</p>
 </dd>
 <dt><strong><a name="_conf_emailfromusername_" class="item">$Conf{EMailFromUserName} = '';</a></strong></dt>
 
 <dd>
-<p>Name to use as the &quot;from&quot; name for email.  Depending upon your mail
+<p>Name to use as the &quot;from&quot; name for email. Depending upon your mail
 handler this is either a plain name (eg: &quot;admin&quot;) or a fully-qualified
 name (eg: <a href="mailto:"admin@mydomain.com").">"admin@mydomain.com").</a></p>
 </dd>
@@ -2160,17 +2160,17 @@ name (eg: <a href="mailto:"admin@mydomain.com").">"admin@mydomain.com").</a></p>
 
 <dd>
 <p>Destination address to an administrative user who will receive a
-nightly email with warnings and errors.  If there are no warnings
-or errors then no email will be sent.  Depending upon your mail
+nightly email with warnings and errors. If there are no warnings
+or errors then no email will be sent. Depending upon your mail
 handler this is either a plain name (eg: &quot;admin&quot;) or a fully-qualified
 name (eg: <a href="mailto:"admin@mydomain.com").">"admin@mydomain.com").</a></p>
 </dd>
 <dt><strong><a name="_conf_emailuserdestdomain_" class="item">$Conf{EMailUserDestDomain} = '';</a></strong></dt>
 
 <dd>
-<p>Destination domain name for email sent to users.  By default
+<p>Destination domain name for email sent to users. By default
 this is empty, meaning email is sent to plain, unqualified
-addresses.  Otherwise, set it to the destintation domain, eg:</p>
+addresses. Otherwise, set it to the destintation domain, eg:</p>
 <pre>
    $Cong{EMailUserDestDomain} = '@mydomain.com';</pre>
 <p>With this setting user email will be set to <a href="mailto:'user@mydomain.com'.">'user@mydomain.com'.</a></p>
@@ -2182,8 +2182,8 @@ addresses.  Otherwise, set it to the destintation domain, eg:</p>
 <dd>
 <p>This subject and message is sent to a user if their PC has never been
 backed up.</p>
-<p>These values are language-dependent.  The default versions can be
-found in the language file (eg: lib/BackupAFS/Lang/en.pm).  If you
+<p>These values are language-dependent. The default versions can be
+found in the language file (eg: lib/BackupAFS/Lang/en.pm). If you
 need to change the message, copy it here and edit it, eg:</p>
 <pre>
   <a href="#_conf_emailnobackupevermesg_">$Conf{EMailNoBackupEverMesg}</a> = &lt;&lt;'EOF';
@@ -2210,8 +2210,8 @@ is sent an email.</p>
 <dd>
 <p>This subject and message is sent to a user if their PC has not recently
 been backed up (ie: more than <a href="#_conf_emailnotifyoldbackupdays_">$Conf{EMailNotifyOldBackupDays}</a> days ago).</p>
-<p>These values are language-dependent.  The default versions can be
-found in the language file (eg: lib/BackupAFS/Lang/en.pm).  If you
+<p>These values are language-dependent. The default versions can be
+found in the language file (eg: lib/BackupAFS/Lang/en.pm). If you
 need to change the message, copy it here and edit it, eg:</p>
 <pre>
   <a href="#_conf_emailnobackuprecentmesg_">$Conf{EMailNoBackupRecentMesg}</a> = &lt;&lt;'EOF';
@@ -2227,7 +2227,7 @@ need to change the message, copy it here and edit it, eg:</p>
 <dt><strong><a name="_conf_emailheaders_" class="item">$Conf{EMailHeaders} = &lt;&lt;EOF;</a></strong></dt>
 
 <dd>
-<p>Additional email headers.  This sets to charset to
+<p>Additional email headers. This sets to charset to
 utf8.</p>
 </dd>
 </dl>
@@ -2265,17 +2265,17 @@ to undef or an empty string.</p>
 <dt><strong><a name="_conf_cgiurl_" class="item">$Conf{CgiURL} = undef;</a></strong></dt>
 
 <dd>
-<p>URL of the BackupAFS_Admin CGI script.  Used for email messages.</p>
+<p>URL of the BackupAFS_Admin CGI script. Used for email messages.</p>
 </dd>
 <dt><strong><a name="_conf_language_" class="item">$Conf{Language} = 'en';</a></strong></dt>
 
 <dd>
-<p>Language to use.  See lib/BackupAFS/Lang for the list of supported
+<p>Language to use. See lib/BackupAFS/Lang for the list of supported
 languages, which include English (en), French (fr), Spanish (es),
 German (de), Italian (it), Dutch (nl), Polish (pl), Portuguese
 Brazillian (pt_br) and Chinese (zh_CH).</p>
 <p>Currently the Language setting applies to the CGI interface and email
-messages sent to users.  Log files and other text are still in English.</p>
+messages sent to users. Log files and other text are still in English.</p>
 </dd>
 <dt><strong><a name="_conf_cgiuserhomepagecheck_" class="item">$Conf{CgiUserHomePageCheck} = '';</a></strong></dt>
 
@@ -2284,14 +2284,14 @@ messages sent to users.  Log files and other text are still in English.</p>
 <dd>
 <p>User names that are rendered by the CGI interface can be turned
 into links into their home page or other information about the
-user.  To set this up you need to create two <code>sprintf()</code> strings,
+user. To set this up you need to create two <code>sprintf()</code> strings,
 that each contain a single '%s' that will be replaced by the user
-name.  The default is a mailto: link.</p>
+name. The default is a mailto: link.</p>
 <p><a href="#_conf_cgiuserhomepagecheck_">$Conf{CgiUserHomePageCheck}</a> should be an absolute file path that
 is used to check (via &quot;-f&quot;) that the user has a valid home page.
 Set this to undef or an empty string to turn off this check.</p>
 <p><a href="#_conf_cgiuserurlcreate_">$Conf{CgiUserUrlCreate}</a> should be a full URL that points to the
-user's home page.  Set this to undef or an empty string to turn
+user's home page. Set this to undef or an empty string to turn
 off generation of URLs for user names.</p>
 <p>Example:</p>
 <pre>
@@ -2303,7 +2303,7 @@ off generation of URLs for user names.</p>
 <dt><strong><a name="_conf_cgidateformatmmdd_" class="item">$Conf{CgiDateFormatMMDD} = 1;</a></strong></dt>
 
 <dd>
-<p>Date display format for CGI interface.  A value of 1 uses US-style
+<p>Date display format for CGI interface. A value of 1 uses US-style
 dates (MM/DD), a value of 2 uses full YYYY-MM-DD format, and zero
 for international dates (DD/MM).</p>
 </dd>
@@ -2315,9 +2315,9 @@ for international dates (DD/MM).</p>
 <dt><strong><a name="_conf_cginavbarlinks_" class="item">$Conf{CgiNavBarLinks} = [ ... ];</a></strong></dt>
 
 <dd>
-<p>Additional navigation bar links.  These appear for both regular users
-and administrators.  This is a list of hashes giving the link (URL)
-and the text (name) for the link.  Specifying lname instead of name
+<p>Additional navigation bar links. These appear for both regular users
+and administrators. This is a list of hashes giving the link (URL)
+and the text (name) for the link. Specifying lname instead of name
 uses the language specific string (ie: $Lang-&gt;{lname}) instead of
 just literally displaying name.</p>
 </dd>
@@ -2334,8 +2334,8 @@ just literally displaying name.</p>
 <dt><strong><a name="_conf_cgiimagedir_" class="item">$Conf{CgiImageDir} = '';</a></strong></dt>
 
 <dd>
-<p>Directory where images are stored.  This directory should be below
-Apache's DocumentRoot.  This value isn't used by BackupAFS but is
+<p>Directory where images are stored. This directory should be below
+Apache's DocumentRoot. This value isn't used by BackupAFS but is
 used by configure.pl when you upgrade BackupAFS.</p>
 <p>Example:</p>
 <pre>
@@ -2345,9 +2345,9 @@ used by configure.pl when you upgrade BackupAFS.</p>
 
 <dd>
 <p>Additional mappings of file name extenions to Content-Type for
-individual file restore.  See $Ext2ContentType in BackupAFS_Admin
-for the default setting.  You can add additional settings here,
-or override any default settings.  Example:</p>
+individual file restore. See $Ext2ContentType in BackupAFS_Admin
+for the default setting. You can add additional settings here,
+or override any default settings. Example:</p>
 <pre>
     <a href="#_conf_cgiext2contenttype_">$Conf{CgiExt2ContentType}</a> = {
                 'pl'  =&gt; 'text/plain',
@@ -2365,7 +2365,7 @@ The CGI script uses this value to serve up image files.</p>
 <dt><strong><a name="_conf_cgicssfile_" class="item">$Conf{CgiCSSFile} = 'BackupAFS_stnd.css';</a></strong></dt>
 
 <dd>
-<p>CSS stylesheet &quot;skin&quot; for the CGI interface.  It is stored
+<p>CSS stylesheet &quot;skin&quot; for the CGI interface. It is stored
 in the <a href="#_conf_cgiimagedir_">$Conf{CgiImageDir}</a> directory and accessed via the
 <a href="#_conf_cgiimagedirurl_">$Conf{CgiImageDirURL}</a> URL.</p>
 <p>For BackupAFS v3.x several color, layout and font changes were made.
@@ -2381,12 +2381,12 @@ if you prefer the old skin, change this to BackupAFS_stnd_orig.css.</p>
 
 <dd>
 <p>Which per-volset config variables a non-admin user is allowed
-to edit.  Admin users can edit all per-volset config variables,
+to edit. Admin users can edit all per-volset config variables,
 even if disabled in this list.</p>
 <p>SECURITY WARNING: Do not let users edit any of the Cmd
 config variables!  That's because a user could set a
 Cmd to a shell script of their choice and it will be
-run as the BackupAFS user.  That script could do all
+run as the BackupAFS user. That script could do all
 sorts of bad things.</p>
 </dd>
 </dl>
@@ -2443,7 +2443,7 @@ sorts of bad things.</p>
 <p>If you are not migrating from BackupPC4AFS, you may safely skip this section.</p>
 <p>BackupPC4AFS stored its dump data in files which had &quot;mangled&quot; names. Name mangling is a concept used by BackupPC (the product on which BackupPC4AFS and BackupAFS are based) to avoid namespace collisions and to allow it to store files' metadata separately from the file itself. BackupPC4AFS went with the flow and mangled filenames because the CGI interface understood mangled names by default.</p>
 <p>BackupAFS does not mangle file names. Therefore it is recommended to unmangle the existing backups to prevent confusion.</p>
-<p>Additionally, the default backup directory (datadir) in BackupPC4AFS in <a href="#_conf_topdir_">$Conf{TopDir}</a>/pc. For example, /srv/BackupPC/pc. BackupAFS stores its volume backups in <a href="#_conf_topdir_">$Conf{TopDir}</a>/volsets. For example, __TOPDIR__/volsets.</p>
+<p>Additionally, the default backup directory (datadir) in BackupPC4AFS is <a href="#_conf_topdir_">$Conf{TopDir}</a>/pc. For example, /srv/BackupPC/pc. BackupAFS stores its volume backups in <a href="#_conf_topdir_">$Conf{TopDir}</a>/volsets. For example, __TOPDIR__/volsets.</p>
 <p>As mentioned in the section above, BackupPC4AFS prefixed all AFS volume sets with &quot;afs_&quot;, which was used internally to indicate to BackupPC4AFS that a specific volumeset (host) actually represented a set of volumes to dump. <strong>BackupAFS does NOT do this. The name of the volumeset is used as recorded in the VolumeSet-List file.</strong> BackupAFS_migrate_unmangle_datadir renames the data directories to remove the &quot;afs_&quot; prefix. ($volsetname=~s^afs_//;)</p>
 <p>To ease migration, BackupAFS comes with a script, BackupAFS_migrate_unmangle_datadir to move any existing backups from the BackupPC4AFS directory structure and names to that expected by BackupAFS.</p>
 <p>BackupAFS_migrate_unmangle_datadir takes one argument, the defined TopDir, passed in as --topdir=path. When properly executed, the script takes no action itself. It merely outputs, to STDOUT, a bourne-shell script which contains the actions that are necessary. This gives the admin a chance to review the output for sanity prior to execution.</p>
@@ -2458,10 +2458,10 @@ sorts of bad things.</p>
 <p>If you are not migrating from BackupPC4AFS, you may safely skip this section.</p>
 <p>BackupPC4AFS stored its dump data in files which were uncompressed. If available and requested, BackupAFS can compress dumps immediately after they occur in order to save disk space.</p>
 <p>The backup and restore routines know how to handle both compressed and uncompressed dumps, so it is not necessary to compress existing dumps, however it is recommended and can save considerable space (35% or more is not uncommon).</p>
-<p>If you do compress, please do so as instructed here. Manually compressing files outside of these guidelines will not store the compression statistics, and BackupAFS will not be able to accurately report compression savings.</p>
+<p>If you do decide to compress existing dumps, please do so as instructed here. Manually compressing files outside of these guidelines will not store the compression statistics, and BackupAFS will not be able to accurately report compression savings.</p>
 <p>In order to facilitate compression of existing dumps, a script named BackupAFS_migrate_compress_volsets is included in the distribution. This script may be used to schedule the compression of an entire data directory or a single volumeset, to give the administrator flexibility. Compressing the entire data directory may be very time consuming, depending on the volume of existing data and the speed and quantity of processors.</p>
-<p>A real-world example: compressing 9.7TB of data (375 full dumps, 6000 incrementals), on a server with (8) 2.66GHz X5355 Xeon processors and 4GB of RAM took approximately 20 hours.</p>
-<p>BackupAFS_migrate_compress_volsets takes either 2 or 3 arguments. --datadir= and --backupuser= are mandatory. --volset is optional, and if specified will operate on only the specified volumeset. If --volset is omitted, then all volumesets will be processed.</p>
+<p>A real-world example: compressing 9.7TB of data (375 full dumps, 6000 incrementals), on a server with (8) 2.66GHz X5355 Xeon processors (using pigz for parallel compression threads) and 4GB of RAM took approximately 20 hours.</p>
+<p>The BackupAFS_migrate_compress_volsets script takes either 2 or 3 arguments. --datadir= and --backupuser= are mandatory. --volset is optional, and if specified will operate on only the specified volumeset. If --volset is omitted, then all volumesets will be processed.</p>
 <p>The action of the script is to locate all volume dump files (.vdmp files) for each volumeset and add them to a &quot;NewFileList.backupnumber&quot; file inside the volset's directory. Once the &quot;NewFileList&quot; file is constructed, BackupAFS can be requested to perform the compression immediately or it will be performed during the next regularly-scheduled wakeup period (along with any files backed up during that wakeup period).</p>
 <p>To compress all backups at once, an admin might do:</p>
 <pre>
@@ -2488,7 +2488,7 @@ digit is for significant feature releases and improvements (most of
 the releases will likely be in this category), and the last digit is for
 bug fixes. You should think of the old 1.00, 1.01, 1.02 and 1.03 as
 1.0.0, 1.1.0, 1.2.0 and 1.3.0.</p>
-<p>Additionally, patches might be made available.  A patched version
+<p>Additionally, patches might be made available. A patched version
 number is of the form X.Y.ZplN (eg: 2.1.0pl2), where N is the
 patch level.</p>
 <p>
@@ -2514,12 +2514,12 @@ patch level.</p>
 is largely based. Without BackupPC, and the fact that it is GPL'ed software, BackupAFS would not
 exist.</p>
 <p>Ryan Kucera contributed the directory navigation code and images
-for BackupPC v1.5.0.  He contributed the first skeleton of BackupPC_restore.
+for BackupPC v1.5.0. He contributed the first skeleton of BackupPC_restore.
 He also added a significant revision to the CGI interface, including
 CSS tags, in BackupPC v2.1.0.</p>
 <p>Rich Duzenbury wrote the RSS feed option for the CGI interface.</p>
 <p>Jono Woodhouse from CapeSoft Software (www.capesoft.com) provided a
-new CSS skin for BackupPC v3.0.0 with several layout improvements.  Sean Cameron
+new CSS skin for BackupPC v3.0.0 with several layout improvements. Sean Cameron
 (also from CapeSoft) designed new and more compact file icons for BackupPC v3.0.0.</p>
 <p>Your name could appear here in the next version!</p>
 <p>
@@ -2527,9 +2527,9 @@ new CSS skin for BackupPC v3.0.0 with several layout improvements.  Sean Cameron
 </p>
 <hr />
 <h1><a name="license">License</a></h1>
-<p>BackupAFS is based on BackupPC. BackupPC is (C) 2001-2009 Craig Barratt. BackupPC is free software, available under the GNU GPL v3 (ONLY; No other version).</p>
+<p>BackupAFS is based on BackupPC. BackupPC is (C) 2001-2009 Craig Barratt. BackupPC is free software, available under the GNU AGPL v3 (ONLY; No other version).</p>
 <p>All portions of BackupAFS not (C) Craig Barratt are (C) 2007-2010 Stephen Joyce.</p>
-<p><strong>This program (BackupAFS) is released under AGPL v3 license (no other versions).</strong></p>
+<p><strong>This program (BackupAFS) is released under the GNU AGPL v3 license (no other versions).</strong></p>
 <p>This program is free software: you can redistribute it and/or modify it under
 the terms of <strong>VERSION 3</strong> of the GNU Affero General Public License as published by the Free Software Foundation.</p>
 <p>This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;

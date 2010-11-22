@@ -39,7 +39,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0rc2, released 16 Nov 2010.
+# Version 1.0.0, released 22 Nov 2010.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -74,7 +74,7 @@ BackupAFS cannot load the package $pkg, which is included in the
 BackupAFS distribution.  This probably means you did not cd to the
 unpacked BackupAFS distribution before running configure.pl, eg:
 
-    cd BackupAFS-1.0.0rc2
+    cd BackupAFS-1.0.0
     ./configure.pl
 
 Please try again.
@@ -570,9 +570,13 @@ printf("Installing binaries in $DestDir$Conf{InstallDir}/bin\n");
 foreach my $prog ( qw(
 	bin/BackupAFS
 	bin/BackupAFS_compress
+	bin/BackupAFS_distributeFulls
 	bin/BackupAFS_dump
 	bin/BackupAFS_fixupBackupSummary
 	bin/BackupAFS_getVols
+	bin/BackupAFS_migrate_compress_volsets
+	bin/BackupAFS_migrate_populate_VolSet-List
+	bin/BackupAFS_migrate_unmangle_datadir
 	bin/BackupAFS_nightly
 	bin/BackupAFS_restore
 	bin/BackupAFS_sendEmail
@@ -634,7 +638,7 @@ if ( $Conf{CgiImageDir} ne "" ) {
     #
     # Install new CSS file, making a backup copy if necessary
     #
-    my $cssBackup = "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css.pre-1.0.0rc2";
+    my $cssBackup = "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css.pre-1.0.0";
     if ( -f "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css" && !-f $cssBackup ) {
 	rename("$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css", $cssBackup);
     }
@@ -811,7 +815,7 @@ foreach my $param ( keys(%{$opts{"config-override"}}) ) {
 #
 # Now backup and write the config file
 #
-my $confCopy = "$dest.pre-1.0.0rc2";
+my $confCopy = "$dest.pre-1.0.0";
 if ( -f $dest && !-f $confCopy ) {
     #
     # Make copy of config file, preserving ownership and modes

@@ -19,11 +19,7 @@
 #   to backup, when to do it, and how long to keep it.  The fourth
 #   group are settings for the CGI http interface.
 #
-#   Configuration settings can also be specified on a per-PC basis.
-#   Simply put the relevant settings in a config.pl file in the
-#   PC's backup directory (ie: in __TOPDIR__/pc/hostName).
-#   All configuration settings in the second, third and fourth
-#   groups can be overridden by the per-PC config.pl file.
+#   Configuration settings can also be specified on a per-VolumeSet basis.
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
@@ -92,16 +88,13 @@ $Conf{MyPath} = '/bin';
 $Conf{UmaskMode} = 027;
 
 #
-# Times at which we wake up, check all the PCs, and schedule necessary
+# Times at which we wake up, check all the VolumeSets, and schedule necessary
 # backups.  Times are measured in hours since midnight.  Can be
 # fractional if necessary (eg: 4.25 means 4:15am).
 #
-# If the hosts you are backing up are always connected to the network
-# you might have only one or two wakeups each night.  This will keep
-# the backup activity after hours.  On the other hand, if you are backing
-# up laptops that are only intermittently connected to the network you
-# will want to have frequent wakeups (eg: hourly) to maximize the chance
-# that each laptop is backed up.
+# If the fileservers hosting the volumes you are backing up are always
+# available, and in the same timezone, you might have only one wakeup
+# each night.  This will keep the backup activity after hours.
 #
 # Examples:
 #     $Conf{WakeupSchedule} = [22.5];         # once per day at 10:30 pm.
@@ -162,31 +155,9 @@ $Conf{CmdQueueNice} = 10;
 $Conf{MaxBackupAFSNightlyJobs} = 2;
 
 #
-# How many days (runs) it takes BackupAFS_nightly to traverse the
-# entire pool.  Normally this is 1, which means every night it runs,
-# it does traverse the entire pool removing unused pool files.
-#
-# Other valid values are 2, 4, 8, 16.  This causes BackupAFS_nightly to
-# traverse 1/2, 1/4, 1/8 or 1/16th of the pool each night, meaning it
-# takes 2, 4, 8 or 16 days to completely traverse the pool.  The
-# advantage is that each night the running time of BackupAFS_nightly
-# is reduced roughly in proportion, since the total job is split
-# over multiple days.  The disadvantage is that unused pool files
-# take longer to get deleted, which will slightly increase disk
-# usage.
-#
-# Note that even when $Conf{BackupAFSNightlyPeriod} > 1, BackupAFS_nightly
-# still runs every night.  It just does less work each time it runs.
-#
-# Examples:
-#
-#    $Conf{BackupAFSNightlyPeriod} = 1;   # entire pool is checked every night
-#
-#    $Conf{BackupAFSNightlyPeriod} = 2;   # two days to complete pool check
-#                                        # (different half each night)
-#
-#    $Conf{BackupAFSNightlyPeriod} = 4;   # four days to complete pool check
-#                                        # (different quarter each night)
+# BackupPC uses the BackupAFSNightlyPeriod to specify what portion
+# of the "pool" to process each night. BackupAFS doesn't have a notion
+# of pooled files, therefore leave this at 1.
 #
 $Conf{BackupAFSNightlyPeriod} = 1;
 
@@ -257,7 +228,7 @@ $Conf{BackupAFSUser} = '';
 # Important installation directories:
 #
 #   TopDir     - where all the backup data is stored
-#   ConfDir    - where the main config and hosts files resides
+#   ConfDir    - where the main config and VolumeSet-List files resides
 #   LogDir     - where log files and other transient information
 #   InstallDir - where the bin, lib and doc installation dirs reside.
 #                Note: you cannot change this value since all the
@@ -321,7 +292,7 @@ $Conf{ServerInitdStartCmd} = '';
 
 ###########################################################################
 # What to backup and when to do it
-# (can be overridden in the per-PC config.pl)
+# (can be overridden in the per-VolumeSet config.pl)
 ###########################################################################
 #
 # Minimum period in days between full backups. A full dump will only be
@@ -437,7 +408,8 @@ $Conf{FullAgeMax} = 90;
 #
 # In the steady state, each time an incr backup completes successfully
 # the oldest one is removed.  If this number is decreased, the
-# extra old backups will be removed.
+# extra old backups will be removed at the next wakeup. So be cautious
+# when decreasing this number.
 #
 $Conf{IncrKeepCnt} = 60;
 
@@ -590,38 +562,31 @@ $Conf{IncrLevels} = [
 
 #
 # Disable all full and incremental backups.  These settings are
-# useful for a client that is no longer being backed up
-# (eg: a retired machine), but you wish to keep the last
-# backups available for browsing or restoring to other machines.
+# useful for a VolumeSet that is no longer being backed up
+# (ie, a retired user, etc) but you wish to keep the last
+# backups available for browsing or restoring.
 #
 # There are three values for $Conf{BackupsDisable}:
 #
 #   0    Backups are enabled.
 #
-#   1    Don't do any regular backups on this client.  Manually
+#   1    Don't do any regular backups on this VolumeSet.  Manually
 #        requested backups (via the CGI interface) will still occur.
 #
-#   2    Don't do any backups on this client.  Manually requested
+#   2    Don't do any backups on this VolumeSet.  Manually requested
 #        backups (via the CGI interface) will be ignored.
-#
-# In versions prior to 3.0 Backups were disabled by setting
-# $Conf{FullPeriod} to -1 or -2.
 #
 $Conf{BackupsDisable} = 0;
 
 #
 # Number of restore logs to keep.  BackupAFS remembers information about
-# each restore request.  This number per client will be kept around before
+# each restore request.  This number per VolumeSet will be kept around before
 # the oldest ones are pruned.
-#
-# Note: files/dirs delivered via Zip or Tar downloads don't count as
-# restores.  Only the first restore option (where the files and dirs
-# are written to the host) count as restores that are logged.
 #
 $Conf{RestoreInfoKeepCnt} = 25;
 
 #
-# One or more blackout periods can be specified.  If a client is
+# One or more blackout periods can be specified.  If a VolumeSet is
 # subject to blackout then no regular (non-manual) backups will
 # be started during any of these periods.  hourBegin and hourEnd
 # specify hours fro midnight and weekDays is a list of days of
@@ -671,33 +636,11 @@ $Conf{BlackoutPeriods} = [];
 $Conf{BackupZeroFilesIsFatal} = '1';
 
 ###########################################################################
-# How to backup a client
-# (can be overridden in the per-PC config.pl)
+# How to backup a VolumeSet
+# (can be overridden in the per-VolumeSet config.pl)
 ###########################################################################
 #
-# What transport method to use to backup each host.  If you have
-# a mixed set of WinXX and linux/unix hosts you will need to override
-# this in the per-PC config.pl.
-#
-# The valid values are:
-#
-#   - 'smb':     backup and restore via smbclient and the SMB protocol.
-#                Easiest choice for WinXX.
-#
-#   - 'rsync':   backup and restore via rsync (via rsh or ssh).
-#                Best choice for linux/unix.  Good choice also for WinXX.
-#
-#   - 'rsyncd':  backup and restore via rsync daemon on the client.
-#                Best choice for linux/unix if you have rsyncd running on
-#                the client.  Good choice also for WinXX.
-#
-#   - 'tar':    backup and restore via tar, tar over ssh, rsh or nfs.
-#               Good choice for linux/unix.
-#
-#   - 'archive': host is a special archive host.  Backups are not done.
-#                An archive host is used to archive other host's backups
-#                to permanent media, such as tape, CDR or DVD.
-#               
+# 'vos' is the only XferMethod currently supported in BackupAFS
 #
 $Conf{XferMethod} = 'vos';
 
@@ -709,45 +652,7 @@ $Conf{XferMethod} = 'vos';
 $Conf{XferLogLevel} = 3;
 
 #
-# Filename charset encoding on the client.  BackupAFS uses utf8
-# on the server for filename encoding.  If this is empty, then
-# utf8 is assumed and client filenames will not be modified.
-# If set to a different encoding then filenames will converted
-# to/from utf8 automatically during backup and restore.
-#
-# If the file names displayed in the browser (eg: accents or special
-# characters) don't look right then it is likely you haven't set
-# $Conf{ClientCharset} correctly.
-#
-# If you are using smbclient on a WinXX machine, smbclient will convert
-# to the "unix charset" setting in smb.conf.  The default is utf8,
-# in which case leave $Conf{ClientCharset} empty since smbclient does
-# the right conversion.
-#
-# If you are using rsync on a WinXX machine then it does no conversion.
-# A typical WinXX encoding for latin1/western europe is 'cp1252',
-# so in this case set $Conf{ClientCharset} to 'cp1252'.
-#
-# On a linux or unix client, run "locale charmap" to see the client's
-# charset.  Set $Conf{ClientCharset} to this value.  A typical value
-# for english/US is 'ISO-8859-1'.
-#
-# Do "perldoc Encode::Supported" to see the list of possible charset
-# values.  The FAQ at http://www.cl.cam.ac.uk/~mgk25/unicode.html
-# is excellent, and http://czyborra.com/charsets/iso8859.html
-# provides more information on the iso-8859 charsets.
-#
 $Conf{ClientCharset} = '';
-
-#
-# Prior to 3.x no charset conversion was done by BackupAFS.  Backups were
-# stored in what ever charset the XferMethod provided - typically utf8
-# for smbclient and the client's locale settings for rsync and tar (eg:
-# cp1252 for rsync on WinXX and perhaps iso-8859-1 with rsync on linux).
-# This setting tells BackupAFS the charset that was used to store file
-# names in old backups taken with BackupAFS 2.x, so that non-ascii file
-# names in old backups can be viewed and restored.
-#
 $Conf{ClientCharsetLegacy} = '';
 
 #
@@ -771,10 +676,10 @@ $Conf{PingPath} = '';
 # Ping command.  The following variables are substituted at run-time:
 #
 #   $pingPath      path to ping ($Conf{PingPath})
-#   $host          host name
+#   $volset        volumeset or host name
 #
 # Wade Brown reports that on solaris 2.6 and 2.7 ping -s returns the wrong
-# exit status (0 even on failure).  Replace with "ping $host 1", which
+# exit status (0 even on failure).  Replace with "ping $volset 1", which
 # gets the correct exit status but we don't get the round-trip time.
 #
 # Note: all Cmds are executed directly without a shell, so the prog name
@@ -785,7 +690,7 @@ $Conf{PingCmd} = '$pingPath -c 1 -w 3 $volset';
 
 #
 # Maximum round-trip ping time in milliseconds.  This threshold is set
-# to avoid backing up PCs that are remotely connected through WAN or
+# to avoid backing up volumes on servers that are remotely connected through WAN or
 # dialup connections.  The output from ping -s (assuming it is supported
 # on your system) is used to check the round-trip packet time.  On your
 # local LAN round-trip times should be much less than 20msec.  On most
@@ -799,53 +704,30 @@ $Conf{PingMaxMsec} = 20;
 # levels can be from 1 (least cpu time, slightly worse compression) to
 # 9 (most cpu time, slightly better compression).  The recommended value
 # is 3.  Changing to 5, for example, will take maybe 20% more cpu time
-# and will get another 2-3% additional compression. See the zlib
-# documentation for more information about compression levels.
-#
-# Changing compression on or off after backups have already been done
-# will require both compressed and uncompressed pool files to be stored.
-# This will increase the pool storage requirements, at least until all
-# the old backups expire and are deleted.
-#
-# It is ok to change the compression value (from one non-zero value to
-# another non-zero value) after dumps are already done.  Since BackupAFS
-# matches pool files by comparing the uncompressed versions, it will still
-# correctly match new incoming files against existing pool files.  The
-# new compression level will take effect only for new files that are
-# newly compressed and added to the pool.
+# and will get another 2-3% additional compression.
 #
 # If compression was off and you are enabling compression for the first
-# time you can use the BackupAFS_compressPool utility to compress the
-# pool.  This avoids having the pool grow to accommodate both compressed
-# and uncompressed backups.  See the documentation for more information.
+# time you can use the BackupAFS_migrate_compress_volsets utility to compress the
+# dumps. See the documentation for more information.
 #
-# Note: compression needs the Compress::Zlib perl library.  If the
-# Compress::Zlib library can't be found then $Conf{CompressLevel} is
-# forced to 0 (compression off).
+# Note: compression needs the gzip or pigz binary.  If neither
+# can be found then $Conf{CompressLevel} is forced to 0 (compression off).
 #
 $Conf{CompressLevel} = 4;
 
 #
 # Timeout in seconds when listening for the transport program's
-# (smbclient, tar etc) stdout. If no output is received during this
+# (vos etc) stdout. If no output is received during this
 # time, then it is assumed that something has wedged during a backup,
 # and the backup is terminated.
-#
-# Note that stdout buffering combined with huge files being backed up
-# could cause longish delays in the output from smbclient that
-# BackupAFS_dump sees, so in rare cases you might want to increase
-# this value.
-#
-# Despite the name, this parameter sets the timeout for all transport
-# methods (tar, smb etc).
 #
 $Conf{ClientTimeout} = 72000;
 
 #
-# Maximum number of log files we keep around in each PC's directory
-# (ie: pc/$host).  These files are aged monthly.  A setting of 12
+# Maximum number of log files we keep around in each VolSet's directory
+# (ie: volsets/$VolumeSet).  These files are aged monthly.  A setting of 12
 # means there will be at most the files LOG, LOG.0, LOG.1, ... LOG.11
-# in the pc/$host directory (ie: about a years worth).  (Except this
+# in the volsets/$VolumeSet directory (ie: about a years worth).  (Except this
 # month's LOG, these files will have a .z extension if compression
 # is on).
 #
@@ -857,6 +739,8 @@ $Conf{MaxOldPerPCLogFiles} = 12;
 #
 # Optional commands to run before and after dumps and restores,
 # and also before and after each share of a dump.
+#
+# These commands have not been tested with BackupAFS; they are a holdover from BackupPC.
 #
 # Stdout from these commands will be written to the Xfer (or Restore)
 # log file.  One example of using these commands would be to
@@ -944,7 +828,7 @@ $Conf{UserCmdCheckStatus} = '0';
 #
 # Override the client's host name.  This allows multiple clients
 # to all refer to the same physical host.  This should only be
-# set in the per-PC config file and is only used by BackupAFS at
+# set in the per-VolumeSet config file and is only used by BackupAFS at
 # the last moment prior to generating the command used to backup
 # that machine (ie: the value of $Conf{ClientNameAlias} is invisible
 # everywhere else in BackupAFS).  The setting can be a host name or
@@ -956,13 +840,11 @@ $Conf{UserCmdCheckStatus} = '0';
 # will cause the relevant smb/tar/rsync backup/restore commands to be
 # directed to realHostName, not the client name.
 #
-# Note: this setting doesn't work for hosts with DHCP set to 1.
-#
 $Conf{ClientNameAlias} = undef;
 
 ###########################################################################
 # Email reminders, status and messages
-# (can be overridden in the per-PC config.pl)
+# (can be overridden in the per-VolumeSet config.pl)
 ###########################################################################
 #
 # Full path to the sendmail command.  Security caution: normal users
@@ -1007,7 +889,7 @@ $Conf{EMailAdminUserName} = '';
 $Conf{EMailUserDestDomain} = '';
 
 #
-# This subject and message is sent to a user if their PC has never been
+# This subject and message is sent to a user if their VolumeSet has never been
 # backed up.
 #
 # These values are language-dependent.  The default versions can be
@@ -1035,7 +917,7 @@ $Conf{EMailNoBackupEverMesg} = undef;
 $Conf{EMailNotifyOldBackupDays} = 7;
 
 #
-# This subject and message is sent to a user if their PC has not recently
+# This subject and message is sent to a user if their VolumeSet has not recently
 # been backed up (ie: more than $Conf{EMailNotifyOldBackupDays} days ago).
 #
 # These values are language-dependent.  The default versions can be
@@ -1065,13 +947,13 @@ Content-Type: text/plain; charset="utf-8"
 
 ###########################################################################
 # CGI user interface configuration settings
-# (can be overridden in the per-PC config.pl)
+# (can be overridden in the per-VolumeSet config.pl)
 ###########################################################################
 #
-# Normal users can only access information specific to their host.
+# Normal users can only access information specific to their volumeset.
 # They can start/stop/browse/restore backups.
 #
-# Administrative users have full access to all hosts, plus overall
+# Administrative users have full access to all volumesets, plus overall
 # status and log information.
 #
 # The administrative users are the union of the unix/linux group
@@ -1104,9 +986,7 @@ $Conf{CgiURL} = undef;
 
 #   
 # Language to use.  See lib/BackupAFS/Lang for the list of supported
-# languages, which include English (en), French (fr), Spanish (es),
-# German (de), Italian (it), Dutch (nl), Polish (pl), Portuguese
-# Brazillian (pt_br) and Chinese (zh_CH).
+# languages, which includes only English (en) right now.
 #
 # Currently the Language setting applies to the CGI interface and email
 # messages sent to users.  Log files and other text are still in English.
@@ -1170,7 +1050,7 @@ $Conf{CgiNavBarLinks} = [
 ];
 
 #
-# Hilight colors based on status that are used in the PC summary page.
+# Hilight colors based on status that are used in the VolumeSet summary page.
 #
 $Conf{CgiStatusHilightColor} = {
   'Reason_backup_failed' => '#ffcccc',
@@ -1223,14 +1103,10 @@ $Conf{CgiImageDirURL} = '';
 # in the $Conf{CgiImageDir} directory and accessed via the
 # $Conf{CgiImageDirURL} URL.
 #
-# For BackupAFS v3.x several color, layout and font changes were made.
-# The previous v2.x version is available as BackupAFS_stnd_orig.css, so
-# if you prefer the old skin, change this to BackupAFS_stnd_orig.css.
-#
 $Conf{CgiCSSFile} = 'BackupAFS_stnd.css';
 
 #
-# Whether the user is allowed to edit their per-PC config.
+# Whether the user is allowed to edit their per-VolumeSet config.
 #
 $Conf{CgiUserConfigEditEnable} = '1';
 
@@ -1241,8 +1117,8 @@ $Conf{AfsVosBackupArgs} = '--volume=$shareName --type=$type --incrDate=$incrDate
 $Conf{AfsVosRestoreArgs} = '--volume=$shareName --type=$type --clientDir=$topDir/volsets/$client --restoreDir=$restoreDir --bkupSrcNum=$bkupSrcNum --bkupSrcVolSet=$bkupSrcVolSet --fileList=$fileList';
 
 #
-# Which per-host config variables a non-admin user is allowed
-# to edit.  Admin users can edit all per-host config variables,
+# Which per-volumeset config variables a non-admin user is allowed
+# to edit.  Admin users can edit all per-volset config variables,
 # even if disabled in this list.
 #
 # SECURITY WARNING: Do not let users edit any of the Cmd

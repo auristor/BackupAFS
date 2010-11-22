@@ -12,7 +12,7 @@
 #========================================================================
 #
 #------------------------------------------------------------------------
-# Version 1.0.0rc2, 16 Nov 2010
+# Version 1.0.0, 22 Nov 2010
 #------------------------------------------------------------------------
 
 * Initial release of BackupAFS on sourceforge.net
@@ -30,6 +30,9 @@
 * Better error condition checking aned reporting.
 
 * General code cleanup and removal of much unused legacy BackupPC code.
+
+* Added and documented BackupAFS_migrate_* scripts for sites migrating
+from BackupPC4AFS.
 
 #------------------------------------------------------------------------
 # BackupPC4AFS Version 3.0.0.2, 23 May 2007

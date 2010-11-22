@@ -1,9 +1,9 @@
 
                               BackupAFS
 
-                            Version 1.0.0rc2
+                            Version 1.0.0
 
-                            16 Nov 2010
+                            22 Nov 2010
 
                    Copyright (C) 2001-2009 Craig Barratt.
                    Copyright (C) 2006-2010 Stephen Joyce.
@@ -25,8 +25,8 @@ The latest version of BackupAFS can be fetched from:
 
 To install BackupAFS run these commands as root:
 
-    tar zxf BackupAFS-1.0.0rc2.tar.gz
-    cd BackupAFS-1.0.0rc2
+    tar zxf BackupAFS-1.0.0.tar.gz
+    cd BackupAFS-1.0.0
     perl configure.pl
 
 This will automatically determine some system information and prompt you
