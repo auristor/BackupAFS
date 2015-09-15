@@ -1,0 +1,116 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_fix_backups_file: Correct the noFill column in the "backups" file
+#
+# DESCRIPTION
+#
+#   BackupAFS versions prior to 1.0.7 did not set the "noFill" column in the "backups"
+#   file located within each volume set's $TopDir/volsets/<volsetname>/ directory
+#   correctly. It should be '0' for full dumps and '1' for incremental dumps
+#   to indicate that the incrementals are not filled and depend on previous
+#   parent dumps. This script takes one argument "--filename=/path/to/backup/file"
+#   and fixes the problem. The old file is saved as backup.pre.
+#
+#   This script should be called repeatedly, once for each volumeset's backups file.
+#
+#   Other than the behavior respecting the overwriting of any existing "backups.pre"
+#   file, this script's behavior should be idempotent.
+#
+# BUGS
+#
+#   This is a quick and dirty program, to be ran once. As such, error-
+#   checking is minimal.
+#
+# AUTHOR
+#   Stephen Joyce <stephen@email.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2015  Stephen Joyce
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; version 3 ONLY.
+#   
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#========================================================================
+#
+# Version 1.0.8, released 15 Sep 2015.
+#
+#========================================================================
+
+use Getopt::Long;
+use File::Copy "cp";
+
+my $FileName;
+my $mode = 0640;
+my $user = "backup";
+my $group = "backup";
+
+defined(my $uidnumber = getpwnam"$user") or die "bad user";
+defined(my $gidnumber = getpwnam"$group") or die "bad group";
+
+&GetOptions("filename|file|f=s" => \$FileName);
+
+print "$FileName: ";
+
+open OLD,"<$FileName" or die "Can't open $FileName for reading: $!\n";
+
+open NEW,">$FileName.new" or die "Can't open $FileName.new for writing: $!\n";
+
+while (<OLD>)
+{
+  chomp;
+  my ($num,$type,$startTime,$endTime,$nFiles,$size,$nFilesExist,$sizeExist,$nFilesNew,$sizeNew,$xferErrs,$xferBadFile,$xferBadShare,$tarErrs,$compress,$sizeExistComp,$sizeNewComp,$noFill,$fillFromNum,$mangle,$xferMethod,$level,$null,$vers)=split(/\t/,$_);
+#print "============================================================================\n";
+#print "Number:		$num\n";
+#print "Type:		$type\n";
+#print "startTime:	$startTime\n";
+#print "endTime:	$endTime\n";
+#print "nFiles:		$nFiles\n";
+#print "Size:		$size\n";
+#print "ExistFiles: 	$nFilesExist\n";
+#print "sizeExist:	$sizeExist\n";
+#print "nFilesNew:	$nFilesNew\n";
+#print "sizeNew:	$sizeNew\n";
+#print "xferErrs:	$xferErrs\n";
+#print "xferBadFile:	$xferBadFile\n";
+#print "xferBadShare:	$xferBadShare\n";
+#print "tarErrs:	$tarErrs\n";
+#print "compress:	$compress\n";
+#print "sizeExistComp:	$sizeExistComp\n";
+#print "noFill:		$noFill\n";
+#print "fillFromNum:	$fillFromNum\n";
+#print "mangle:		$mangle\n";
+#print "xferMethod:	$xferMethod\n";
+#print "level:		$level\n";
+#print "version:		$vers\n";
+
+if ($type eq "incr") {
+  $noFill = 1;
+  print "n";
+} else {
+  print "F";
+}
+print NEW "$num\t$type\t$startTime\t$endTime\t$nFiles\t$size\t$nFilesExist\t$sizeExist\t$nFilesNew\t$sizeNew\t$xferErrs\t$xferBadFile\t$xferBadShare\t$tarErrs\t$compress\t$sizeExistComp\t$sizeNewComp\t$noFill\t$fillFromNum\t$mangle\t$xferMethod\t$level\t$null\t$vers\n";
+}
+print "\n";
+close NEW;
+close OLD;
+
+cp ("$FileName", "$FileName.pre");
+
+#chown $uidnumber, $gidnumber,"$FileName.new";
+cp ("$FileName.new", "$FileName");
+chown $uidnumber, $gidnumber,"$FileName";
+unlink ("$FileName.new");
+#unlink ("$FileName.pre");

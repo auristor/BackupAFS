@@ -7,12 +7,29 @@
 #   versions, most recent first.
 #
 # AUTHOR
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 #========================================================================
 #
 #------------------------------------------------------------------------
-# Version 1.0.0, 22 Nov 2010
+# Version 1.0.8, 15 Sep 2015
+#------------------------------------------------------------------------
+
+* Added rrdtool graphs
+
+* Fixed bug with expiry and the unused "filled" backups legacy from BackupPC.
+  In some configuration scenarios, it was possible for a full backup to be
+  deleted and leave incrs that depend on that full for restoration.
+  This bug only manifested itself in situations where the backup rotation
+  used was configured to keep only a single full dump, or to keep so many
+  incrementals so that some depended on a full dump which was not the
+  most-recent.
+
+* Provided "BackupAFS_fix_backups_file" executable to assist with correcting
+  the backups file afflicted by the bug above.
+
+#------------------------------------------------------------------------
+# BackupAFS Version 1.0.0, 22 Nov 2010
 #------------------------------------------------------------------------
 
 * Initial release of BackupAFS on sourceforge.net
@@ -32,7 +49,7 @@
 * General code cleanup and removal of much unused legacy BackupPC code.
 
 * Added and documented BackupAFS_migrate_* scripts for sites migrating
-from BackupPC4AFS.
+  from BackupPC4AFS.
 
 #------------------------------------------------------------------------
 # BackupPC4AFS Version 3.0.0.2, 23 May 2007

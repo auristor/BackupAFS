@@ -1,0 +1,279 @@
+#!/usr/bin/perl
+#============================================================= -*-perl-*-
+#
+# BackupAFS_rrdUpdate: Nightly disk graph update
+#
+# DESCRIPTION
+#
+#   Usage: BackupAFS_rrdUpdate
+#
+# AUTHORS
+#   Alexander Moisseev  <moiseev@mezonplus.ru>
+#   Craig Barratt       <cbarratt@users.sourceforge.net>
+#   Stephen Joyce       <stephen@email.unc.edu>
+#
+# COPYRIGHT
+#   Copyright (C) 2013  Alexander Moisseev and Craig Barratt
+#   Copyright (C) 2014  Stephen Joyce
+#
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#========================================================================
+#
+# Version 1.0.8, released 15 Sep 2015.
+#
+# See http://backuppc.sourceforge.net.
+#
+#========================================================================
+
+use strict;
+no  utf8;
+use lib "__INSTALLDIR__/lib";
+use BackupAFS::Lib;
+use File::Path;
+use Data::Dumper;
+our(%Info);
+
+my $debug=0;
+
+die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
+my $TopDir = $bafs->TopDir();
+my $BinDir = $bafs->BinDir();
+my $LogDir = $bafs->LogDir();
+my %Conf   = $bafs->Conf();
+my $dfPath = "";
+
+if ( !-x $Conf{RrdToolPath} ) {
+    print("RrdToolPath \"$Conf{RrdToolPath}\" is not a valid executable\n");
+    exit(0);
+}
+
+if ( !-x $Conf{DfPath} ) {
+    print("DfPath \"$Conf{DfPath}\" is not a valid executable\n");
+    exit(0);
+} else {
+    $dfPath = $Conf{DfPath};
+}
+
+
+my $err = $bafs->ServerConnect($Conf{ServerHost}, $Conf{ServerPort});
+if ( $err ) {
+    print("Can't connect to server ($err)\n");
+    exit(1);
+}
+my $reply = $bafs->ServerMesg("status info");
+$reply = $1 if ( $reply =~ /(.*)/s );
+eval($reply);
+
+my $Now     = time();
+my $NowRnd0 = 86400 * int($Now / 86400);
+my $NowRnd1 = $NowRnd0 + 86400;
+my $RRDFile = "$LogDir/diskUsage.rrd";
+
+RRDUpdate();
+RRDGraph(4);
+RRDGraph(52);
+exit(0);
+
+#
+# Feeds disk size data values into an RRD $RRDFile
+#
+sub RRDUpdate
+{
+    #
+    # We store data in RRD with predicted time of next update.
+    #
+    if ( !-f $RRDFile ) {
+        print $bafs->cmdSystemOrEval(
+            [
+                $Conf{RrdToolPath},
+                "create", $RRDFile,
+                "--step", "86400",
+                "--start", "$NowRnd0 - 1d",
+                "DS:ctotkB:GAUGE:172800:0:U",
+                "DS:utotkB:GAUGE:172800:0:U",
+                "DS:dfkB:GAUGE:172800:0:U",
+                "RRA:LAST:0:1:732"
+            ]);
+    }
+
+    #
+    # Calculate Backup total size with and without compression
+    #
+    my ($fullAge, $fullSizeTot, $fullSizeCompTot,$dfSizeGB);
+    my ($incrDur, $incrSizeTot, $incrSizeCompTot);
+        my($fullDur, $incrCnt, $incrAge, $fullSize, $incrSize, $fullSizeComp, $incrSizeComp, $fullRate, $reasonHilite,
+           $tempState, $tempReason, $lastXferErrors);
+    foreach my $volset ( sort( keys( %{ $bafs->VolSetInfoRead() } ) ) ) {
+        my ($vtot,$vctot)=0;
+        print "Volset: $volset\n" if ($debug);
+        my @Backups = $bafs->BackupInfoRead($volset);
+        my $fullCnt = $incrCnt = 0;
+        for ( my $i = 0 ; $i < @Backups ; $i++ ) {
+            print "#: $i\n" if ($debug);
+            my ($fullAge,$fullSize,$fullSizeComp,$fullDur,$incrAge,$incrSize,$incrSizeComp)=0;
+            if ( $Backups[$i]{type} eq "full" ) {
+                $fullCnt++;
+                if ( $fullAge < 0 || $Backups[$i]{startTime} > $fullAge ) {
+                    $fullAge  = $Backups[$i]{startTime};
+                    $fullSize = $Backups[$i]{size} / (1000);
+                    $fullSizeComp = $Backups[$i]{sizeNewComp} / (1000);
+                    $fullDur  = $Backups[$i]{endTime} - $Backups[$i]{startTime};
+                }
+                $fullSizeTot += $fullSize;
+                $fullSizeComp=$fullSize if ($fullSizeComp == 0 );
+                $fullSizeCompTot += $fullSizeComp;
+                $vtot+=$fullSize;
+                $vctot+=$fullSizeComp;
+                print "Full: $fullSize MB ($fullSizeComp MB compressed)\n" if ($debug);
+            } else {
+                $incrCnt++;
+                if ( $incrAge < 0 || $Backups[$i]{startTime} > $incrAge ) {
+                    $incrAge = $Backups[$i]{startTime};
+                }
+                $incrSize = $Backups[$i]{size} / (1000);
+                $incrSizeComp = $Backups[$i]{sizeNewComp} / (1000);
+
+                $incrSizeTot += $incrSize;
+                $incrSizeComp=$incrSize if ($incrSizeComp == 0 );
+                $incrSizeCompTot += $incrSizeComp;
+                $vtot+=$incrSize;
+                $vctot+=$incrSizeComp;
+                print "Incr: $incrSize MB ($incrSizeComp MB compressed)\n" if ($debug);
+            }
+            print "F: $fullSizeCompTot I: $incrSizeCompTot\n" if ($debug);
+        }
+        print "volset T: " . (($vtot)/1000). " GB\n" if ($debug);
+        print "volset C: " . (($vctot)/1000). " GB\n" if ($debug);
+
+    }
+    my $sizeTot = $fullSizeTot + $incrSizeTot;
+    my $sizeCompTot = $fullSizeCompTot + $incrSizeCompTot;
+    print "Total size: $sizeTot\n" if ($debug);
+    print "Compressed size: $sizeCompTot\n" if ($debug);
+
+    my $df=0;
+    my $part="/srv/BackupAFS";
+    open DF,"$dfPath $part|" or warn "Can't run df command: $!\n";
+    while (<DF>) {
+        chomp;
+        my $line=$_;
+        next if ($line!~/$part/);
+        my ($fs,$kblocks,$used,$avail,$pct,$mount)=(split /\s+/,$line);
+        $df=$kblocks;
+    }
+    close (DF);
+
+    my $total=$fullSizeTot+$incrSizeTot;
+    my $ctotal=$fullSizeCompTot+$incrSizeCompTot;
+    print $bafs->cmdSystemOrEval(
+            [
+                $Conf{RrdToolPath},
+                "update", $RRDFile,
+                $NowRnd1           . ":"
+                . $ctotal . ":"
+                . $total  . ":"
+                . $df
+            ]);
+     printf("%sRRD updated:"
+          . " date %s; ctotal %f; total %f;"
+          . " dfKb %f\n",
+                $bafs->timeStamp,
+                $NowRnd1, $ctotal, $total, $df);
+}
+
+#
+# Generate disk size RRDtool graph image
+#
+sub RRDGraph
+{
+    my($weeks) = @_;
+    my($fdOut);
+    my @diskMax;
+
+    #
+    # Get each disk max value from RRD
+    #
+    $bafs->cmdSystemOrEval(
+            [
+                $Conf{RrdToolPath},
+                "graphv", "-",
+                "--end=$NowRnd1", "--start=end-${weeks}w",
+                "DEF:ctotkB=$RRDFile:ctotkB:LAST",
+                "DEF:dfkB=$RRDFile:dfkB:LAST",
+                "PRINT:ctotkB:LAST:%lf",
+                "PRINT:dfkB:LAST:%lf",
+            ], sub {
+                #print $_[0];
+                if ( $_[0] =~ /^print\[([0-3])\] = "([.0-9]+)"$/ ) {
+                    $diskMax[$1] = $2 unless ( $2 == 0 );
+                }
+            });
+
+    my $diskSizeGraph = [
+        "$Conf{RrdToolPath}",
+        "graph", "-",
+        "--end=$NowRnd1", "--start=end-${weeks}w",
+        "--title=BackupAFS Disk Usage (${weeks} weeks)",
+        "--vertical-label=",
+        "--width=600", "--height=100", #"--rigid", 
+        "-l 0",
+        #"--alt-autoscale-max",
+        "--base=1000", "--units=si",
+        #"--base=1000", "--logarithmic", "--units=si",
+        "--color", "BACK#FFFFFF", "--slope-mode", "--imgformat=PNG",
+        "--font", "TITLE:10:", "--font", "AXIS:8:", "--font", "LEGEND:8:", "--font", "UNIT:8:",
+        "--font-render-mode", "mono",
+        "DEF:ctotkB=$RRDFile:ctotkB:LAST",
+        "DEF:dfkB=$RRDFile:dfkB:LAST",
+        "DEF:utotkB=$RRDFile:utotkB:LAST",
+        "CDEF:ctotB=ctotkB,1000,*",
+        "CDEF:dfB=dfkB,1000,*",
+        "CDEF:utotB=utotkB,1000,*"
+    ];
+
+    #
+    # Draw total line graph
+    #
+    push(@$diskSizeGraph,
+        'AREA:ctotB#FFDBA7:Backups (compressed)            ',
+        'GPRINT:ctotB:LAST:Current\\:%8.2lf %s',
+        'GPRINT:ctotB:AVERAGE:Average\\:%8.2lf %s',
+        'GPRINT:ctotB:MAX:Maximum\\:%8.2lf %s\n'
+    ) if $diskMax[1];
+    push(@$diskSizeGraph,
+        'LINE1:utotB#FF0000:Backups (prior to compression)  ',
+        'GPRINT:utotB:LAST:Current\\:%8.2lf %s',
+        'GPRINT:utotB:AVERAGE:Average\\:%8.2lf %s',
+        'GPRINT:utotB:MAX:Maximum\\:%8.2lf %s\\n'
+    );
+
+    #
+    # Draw total partition size
+    #
+    push(@$diskSizeGraph,
+        'LINE1:dfB#95B8D8:Size of Backup Partition        ',
+        'GPRINT:dfB:LAST:Current\\:%8.2lf %s',
+        'GPRINT:dfB:AVERAGE:Average\\:%8.2lf %s',
+        'GPRINT:dfB:MAX:Maximum\\:%8.2lf %s\\n'
+    );
+
+    if ( !open($fdOut, ">", "$LogDir/diskUsage$weeks.png") ) {
+        print("Can't open/create $LogDir/diskUsage$weeks.png\n");
+        return;
+    }
+    $bafs->cmdSystemOrEval($diskSizeGraph, sub { print $fdOut $_[0] });
+    close($fdOut);
+}
+

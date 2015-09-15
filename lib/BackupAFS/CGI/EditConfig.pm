@@ -8,10 +8,10 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
-#   Copyright (C) 2005-2009  Craig Barratt
+#   Copyright (C) 2005-2013  Craig Barratt
 #   Copyright (C) 2010 Stephen Joyce
 #
 #   This program is free software; you can redistribute it and/or modify
@@ -29,7 +29,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -92,6 +92,7 @@ our %ConfigMenu = (
 	    {name => "GzipPath"},
 	    {name => "PigzPath"},
 	    {name => "PigzThreads"},
+            {name => "RrdToolPath"},
 
             {text => "CfgEdit_Title_Install_Paths"},
             #
@@ -350,7 +351,7 @@ sub action
     }
 
     my $groupText="<td>|</td>";
-    foreach my $m ( keys(%ConfigMenu) ) {
+    foreach my $m ( sort keys(%ConfigMenu) ) {
         next if ( $menuDisable{$m}{top} );
 	my $text = eval("qq($Lang->{$ConfigMenu{$m}{text}})");
         if ( $m eq $menu ) {
@@ -878,7 +879,7 @@ EOF
             }
             $content .= fieldHiddenBuild($childType, "${varName}_zZ_$fld",
                                          $varValue->{$fld}, $prefix);
-	    $content .= "<table><tr><td><br></td></tr></table>\n";
+	    #XXX$content .= "<table><tr><td><br></td></tr></table>\n";
         }
     } elsif ( $type->{type} eq "shortlist" ) {
 	$varValue = [$varValue] if ( ref($varValue) ne "ARRAY" );
@@ -915,7 +916,7 @@ sub fieldEditBuild
     if ( $level == 0 ) {
         my $lcVarName = lc($varName);
 	$content .= <<EOF;
-<tr><td class="border"><a href="?action=view&type=docs#_conf_${lcVarName}_">$varName</a>
+<tr><td class="border" valign="top"></br><a href="?action=view&type=docs#_conf_${lcVarName}_">$varName</a>
 EOF
 	if ( defined($overrideVar) ) {
 	    my $override_checked = "";
@@ -982,10 +983,7 @@ EOF
             for ( my $i = 0 ; $i < @$varValue ; $i++ ) {
                 if ( @$varValue > 1 || $type->{emptyOk} ) {
                     $content .= <<EOF;
-<td class="border">
-<input type="button" name="del_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Delete})}"
-    onClick="deleteSubmit('${varName}_zZ_$i')">
-</td>
+<td class="border"> <input type="button" name="del_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Delete})}" onClick="deleteSubmit('${varName}_zZ_$i')"> </td>
 EOF
                 }
                 $content .= fieldEditBuild($type->{child}, "${varName}_zZ_$i",
@@ -1008,15 +1006,11 @@ EOF
 	    my $rowspan= 1 + int((@order-1)/3); # 1 + (num elements / 3).... if user adds more Entry fields, this automagically adjusts
             for ( my $i = 0 ; $i < @$varValue ; $i++ ) {
                 $content .= <<EOF;
-<tr><td class="border" rowspan="$rowspan">
-<input type="button" name="ins_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Insert})}"
-    onClick="insertSubmit('${varName}_zZ_$i')"><br>
+<tr><td class="border" rowspan="$rowspan"><input type="button" name="ins_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Insert})}" onClick="insertSubmit('${varName}_zZ_$i')"><br>
 EOF
                 if ( @$varValue > 1 || $type->{emptyOk} ) {
                     $content .= <<EOF;
-<input type="button" name="del_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Delete})}"
-    onClick="deleteSubmit('${varName}_zZ_$i')">
-</td>
+<input type="button" name="del_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Delete})}" onClick="deleteSubmit('${varName}_zZ_$i')"></td>
 EOF
 			# The above displays the Delete button for each existing VS.
                 }
@@ -1025,19 +1019,17 @@ EOF
                                   $varValue->[$i], $errors, $level + 1, undef,
                                   $isError, $onchangeSubmit,
                                   $overrideVar, $overrideSet);
-                $content .= "</tr>\n";
+                #XXX$content .= "</tr>\n";
             }
         } else {
             for ( my $i = 0 ; $i < @$varValue ; $i++ ) {
                 $content .= <<EOF;
-<tr><td class="border">
-<input type="button" name="ins_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Insert})}"
+<tr><td class="border"> <input type="button" name="ins_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Insert})}"
     onClick="insertSubmit('${varName}_zZ_$i')">
 EOF
                 if ( @$varValue > 1 || $type->{emptyOk} ) {
                     $content .= <<EOF;
-<input type="button" name="del_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Delete})}"
-    onClick="deleteSubmit('${varName}_zZ_$i')">
+<input type="button" name="del_${varName}_zZ_$i" value="${EscHTML($Lang->{CfgEdit_Button_Delete})}" onClick="deleteSubmit('${varName}_zZ_$i')">
 EOF
                 }
                 $content .= "</td>\n";
@@ -1050,8 +1042,9 @@ EOF
             $colspan = 2;
         }
         $content .= <<EOF;
-<tr><td class="border" colspan="7"><input type="button" name="add_$varName" value="${EscHTML($Lang->{CfgEdit_Button_Add})}"
-    onClick="addSubmit('$varName')"></td></tr>
+<tr>
+ <td class="border" colspan="7"><input type="button" name="add_$varName" value="${EscHTML($Lang->{CfgEdit_Button_Add})}" onClick="addSubmit('$varName')"></td>
+</tr>
 </table>
 EOF
     } elsif ( $type->{type} eq "hash" ) {
@@ -1185,24 +1178,24 @@ EOF
 <input type="hidden" name="vflds.$varName" value="${EscHTML($fld)}">
 EOF
             }
-            $content .= "<td class=\"tableheader\">$fld\n";
+            $content .= "<td class=\"tableheader\">$fld</td>\n";
 
 	    # This displays the entry boxes, one at a time, but all in a row
             $content .= fieldEditBuild($childType, "${varName}_zZ_$fld",
                             $varValue->{$fld}, $errors, $level + 1, undef,
 			    $isError, $onchangeSubmit,
 			    $overrideVar, $overrideSet);
-        $content .= "</td>";
+        #XXX$content .= "</td>";
 	# added user and moreUsers back. No need for this now.
         #if ($count == 0 ) {
 	#  # First row in this VolSet's table. End row after asking name.
         #  $content .= "<td colspan=\"4\" class=\"tableheader\">&nbsp;</td>";
         #}
         #if ($count == 0 || $count == 3 || $count == 6 ) {
-	if ( (($count+1)%3)==0 && (int($count) != $#order)) {
-          $content .= "</tr><tr>";
-        }
-        $count++;
+           if ( (($count+1)%3)==0 && (int($count) != $#order)) {
+              $content .= "</tr>\n<tr>";
+            }
+            $count++;
         }
 	$content .= "<tr><td colspan=\"7\" class=\"volsetheader\">&nbsp;</td></tr>";
     } else {

@@ -1,7 +1,7 @@
 =head1 BackupAFS Introduction
 
 This documentation describes BackupAFS version 1.0.0,
-released on 22 Nov 2010.
+released on 15 Sep 2015.
 
 =head2 Overview
 
@@ -2546,7 +2546,7 @@ patch level.
 
 =head1 Author
 
-Craig Barratt  <cbarratt@users.sourceforge.net> wrote the original BackupPC documentation on which this documentation is based. Any and all subsequent modifications to this document, especially the AFS-specific parts, were written by Stephen Joyce <stephen@physics.unc.edu>. Please do not send BackupAFS questions to Mr. Barratt.
+Craig Barratt  <cbarratt@users.sourceforge.net> wrote the original BackupPC documentation on which this documentation is based. Any and all subsequent modifications to this document, especially the AFS-specific parts, were written by Stephen Joyce <stephen@email.unc.edu>. Please do not send BackupAFS questions to Mr. Barratt.
 
 See L<http://backupafs.sourceforge.net>.
 

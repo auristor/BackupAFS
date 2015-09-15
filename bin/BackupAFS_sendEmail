@@ -31,7 +31,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -186,8 +186,6 @@ foreach my $volset ( sort(keys(%Status)) ) {
     %Conf = $bafs->Conf();
     my $user = $VolSets->{$volset}{user};
 
-    next if ( $user eq "" );
-
     #
     # Accumulate volset errors for the admin email below
     #
@@ -204,6 +202,7 @@ foreach my $volset ( sort(keys(%Status)) ) {
               || $Conf{XferMethod} eq "archive"
               || $Conf{BackupsDisable}
               || $VolSets->{$volset}{user} eq ""
+              || $user eq ""
           );
     my @Backups = $bafs->BackupInfoRead($volset);
     my $numBackups = @Backups;

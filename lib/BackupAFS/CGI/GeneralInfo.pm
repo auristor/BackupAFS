@@ -8,11 +8,11 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
-#   Copyright (C) 2003-2009  Craig Barratt
-#   Copyright (C) 2010 Stephen Joyce
+#   Copyright (C) 2003-2013  Craig Barratt
+#   Copyright (C) 2010-2014 Stephen Joyce
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -45,6 +45,15 @@ sub action
 {
     GetStatusInfo("info jobs volsets queueLen");
     my $Privileged = CheckPermission();
+    if ($In{image} ne "") {
+        $In{image} =~ /([0-9]+)/;
+        my $weeks = $1;
+        my $real = $<; ### SUID
+        $< = $>; ### SUID
+        $< = $real; ### SUID
+        return;
+    }
+
     my($jobStr, $statusStr);
     foreach my $volset ( sort(keys(%Jobs)) ) {
         my $startTime = timeStamp2($Jobs{$volset}{startTime});
@@ -111,8 +120,21 @@ EOF
     my $numCmdQueue  = $QueueLen{CmdQueue};
     my $serverStartTime = timeStamp2($Info{startTime});
     my $configLoadTime  = timeStamp2($Info{ConfigLTime});
-    my $generalInfo = eval("qq{$Lang->{BackupAFS_Server_Status_General_Info}}")
-                                if ( $Privileged );
+
+    my $generalInfo = "";
+    if ( $Privileged ) {
+        $generalInfo  = eval("qq{$Lang->{BackupAFS_Server_Status_General_Info}}");
+        if ( -r "$LogDir/diskUsage4.png" && -r "$LogDir/diskUsage52.png" ) {
+            $generalInfo .= <<EOF;
+<ul>
+    <ul>
+        <p><img src="$MyURL?action=view&type=diskUsage&num=4">
+        <p><img src="$MyURL?action=view&type=diskUsage&num=52">
+    </ul>
+</ul>
+EOF
+        }
+    }
     my $content = eval("qq{$Lang->{BackupAFS_Server_Status}}");
 
     Header($Lang->{H_BackupAFS_Server_Status}, $content);

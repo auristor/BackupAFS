@@ -53,7 +53,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2001-2009  Craig Barratt
@@ -74,7 +74,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -773,7 +773,7 @@ if ( !$stat{xferOK} ) {
 	    $stat{volsetAbort} = 1;
 	}
 	if ( $stat{volsetAbort} ) {
-	    $stat{volsetError} = "lost network connection during backup";
+	    $stat{volsetError} = "No volumes in volume set or lost network connection during backup";
 	}
 	print(LOG $bafs->timeStamp, "Backup aborted ($stat{volsetError})\n");
 	$XferLOG->write(\"Backup aborted ($stat{volsetError})\n");
@@ -931,7 +931,7 @@ sub BackupFailCleanup
     # only keep this backup if it has more files than the previous
     # partial.
     #
-    if ( $type eq "full" ) {
+    if ((@$ShareNames) && ( $type eq "full" )) {
 	if ( $nFilesTotal == 0 && $xfer->getStats->{fileCnt} == 0 ) {
 	    #
 	    # Xfer didn't report any files, but check in the new

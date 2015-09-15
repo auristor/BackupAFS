@@ -9,7 +9,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2004-2009  Craig Barratt
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #

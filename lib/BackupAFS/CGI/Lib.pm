@@ -9,7 +9,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2003-2009  Craig Barratt
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -181,16 +181,33 @@ EOF
 
 sub timeStamp2
 {
+    my $now = $_[0] == 0 ? time : $_[0];
     my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)
-              = localtime($_[0] == 0 ? time : $_[0] );
+              = localtime($now);
     $mon++;
     if ( $Conf{CgiDateFormatMMDD} == 2 ) {
         $year += 1900;
         return sprintf("%04d-%02d-%02d %02d:%02d", $year, $mon, $mday, $hour, $min);
     } elsif ( $Conf{CgiDateFormatMMDD} ) {
-        return sprintf("$mon/$mday %02d:%02d", $hour, $min);
+        #
+        # Add the year if the time is more than 330 days ago
+        #
+        if ( time - $now > 330 * 24 * 3600 ) {
+            $year -= 100;
+            return sprintf("$mon/$mday/%02d %02d:%02d", $year, $hour, $min);
+        } else {
+            return sprintf("$mon/$mday %02d:%02d", $hour, $min);
+        }
     } else {
-        return sprintf("$mday/$mon %02d:%02d", $hour, $min);
+        #
+        # Add the year if the time is more than 330 days ago
+        #
+        if ( time - $now > 330 * 24 * 3600 ) {
+            $year -= 100;
+            return sprintf("$mday/$mon/%02d %02d:%02d", $year, $hour, $min);
+        } else {
+            return sprintf("$mday/$mon %02d:%02d", $hour, $min);
+        }
     }
 }
 

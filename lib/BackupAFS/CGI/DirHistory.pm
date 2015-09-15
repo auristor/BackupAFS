@@ -28,7 +28,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -164,10 +164,31 @@ EOF
 	$fileStr .= "</tr>\n";
     }
 
-    my $dirDisplay = decode_utf8("$share/$dir");
-    $dirDisplay =~ s{//+}{/}g;
-    $dirDisplay =~ s{/+$}{}g;
-    $dirDisplay = "/" if ( $dirDisplay eq "" );
+    #
+    # allow each level of the directory path to be navigated to
+    #
+    my($thisPath, $dirDisplay);
+    my $dirClean = $dir;
+    $dirClean =~ s{//+}{/}g;
+    $dirClean =~ s{/+$}{};
+    my @dirElts = split(/\//, $dirClean);
+    @dirElts = ("/") if ( !@dirElts );
+    foreach my $d ( @dirElts ) {
+        my($thisDir);
+
+        if ( $thisPath eq "" ) {
+            $thisDir  = decode_utf8($share);
+            $thisPath = "/";
+        } else {
+            $thisPath .= "/" if ( $thisPath ne "/" );
+            $thisPath .= "$d";
+            $thisDir = decode_utf8($d);
+        }
+        my $thisPathURI = $thisPath;
+        $thisPathURI =~ s/([^\w.\/-])/uc sprintf("%%%02x", ord($1))/eg;
+        $dirDisplay .= "/" if ( $dirDisplay ne "" );
+        $dirDisplay .= "<a href=\"$MyURL?action=dirHistory&volset=${EscURI($volset)}&share=$shareURI&dir=$thisPathURI\">${EscHTML($thisDir)}</a>";
+    }
     my $content = eval("qq{$Lang->{DirHistory_for__volset}}");
     Header(eval("qq{$Lang->{DirHistory_backup_for__volset}}"), $content);
     Trailer();

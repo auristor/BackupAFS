@@ -4,7 +4,7 @@
 #
 # Startup init script for BackupAFS on suse linux.
 #
-# Distributed with BackupAFS version 1.0.0, released 22 Nov 2010.
+# Distributed with BackupAFS version 1.0.8, released 15 Sep 2015.
 #
 
 set -e

@@ -8,7 +8,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2003-2009  Craig Barratt
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -244,12 +244,15 @@ EOF
         if ( $user ne "" ) {
             $statusStr .= eval("qq{$Lang->{This_PC_is_used_by}$moreUserStr}");
         }
-        if ( defined($UserEmailInfo{$user}) && defined($UserEmailInfo{$user}{$volset}) ) {
+        if ( defined($UserEmailInfo{$user})
+                && defined($UserEmailInfo{$user}{$volset})
+                && defined($UserEmailInfo{$user}{$volset}{lastSubj}) ) {
             my $mailTime = timeStamp2($UserEmailInfo{$user}{$volset}{lastTime});
             my $subj     = $UserEmailInfo{$user}{$volset}{lastSubj};
             $statusStr  .= eval("qq{$Lang->{Last_email_sent_to__was_at___subject}}");
         } elsif ( defined($UserEmailInfo{$user})
-                && $UserEmailInfo{$user}{lastVolSet} eq $volset ) {
+                && $UserEmailInfo{$user}{lastVolSet} eq $volset
+                && defined($UserEmailInfo{$user}{lastSubj}) ) {
             #
             # Old format %UserEmailInfo
             #

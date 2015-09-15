@@ -9,7 +9,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce  <stephen@physics.unc.edu>
+#   Stephen Joyce  <stephen@email.unc.edu>
 #    - AFS support based on Craig's existing beta backupafsd method
 #
 # COPYRIGHT
@@ -31,10 +31,9 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
-# See http://backupafs.sourceforge.net and
-#     http://www.physics.unc.edu/~stephen/backupafs
+# See http://backupafs.sourceforge.net
 #
 #========================================================================
 

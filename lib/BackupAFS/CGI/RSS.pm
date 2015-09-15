@@ -28,7 +28,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -42,7 +42,8 @@ use XML::RSS;
 
 sub action
 {
-    my $base_url = 'https://' . $ENV{'SERVER_NAME'} . $ENV{SCRIPT_NAME};
+    my $protocol = $ENV{HTTPS} eq "on" ?  'https://' : 'http://';
+    my $base_url = $protocol . $ENV{'SERVER_NAME'} . $ENV{SCRIPT_NAME};
 
     my($fullTot, $fullSizeTot, $incrTot, $incrSizeTot, $str,
        $strNone, $strGood, $volsetCntGood, $volsetCntNone);

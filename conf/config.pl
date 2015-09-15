@@ -23,7 +23,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2001-2009  Craig Barratt
@@ -201,6 +201,11 @@ $Conf{PigzPath} = '';
 $Conf{AfsVosPath} = '';
 
 $Conf{PigzThreads} = undef;
+
+#
+# Where to find rrdtool - required for graphing disk utilization
+#
+$Conf{RrdToolPath} = '';
 
 #
 # Maximum threshold for disk utilization on the __TOPDIR__ filesystem.

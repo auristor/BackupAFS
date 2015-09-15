@@ -1,7 +1,7 @@
 // Used with under license grant from http://kryogenix.org/code/browser/sorttable/
 // Credit for this code goes to Stuart Langridge - http://kryogenix.org/contact
 
-// Modified 11/2010, Stephen Joyce <stephen@physics.unc.edu>
+// Modified 11/2010, Stephen Joyce <stephen@email.unc.edu>
 // - ignore leading or trailing spaces when doing numerical sorts
 // - ignore % sign after last digit when doing numerical sorts
 

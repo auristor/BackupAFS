@@ -758,7 +758,7 @@ You may:
 </ul>
 </form>
 
-\${h2("Contents of \${EscHTML(\$TopDir)}/volsets/\${EscHTML(\$volset)}/\${EscHTML(\$Backups\[\$i\]\{num\})}/\${EscHTML(\$dirDisplay)}   ")}
+\${h2("Contents of \${EscHTML(\$TopDir)}/volsets/\${EscHTML(\$volset)}/\${EscHTML(\$Backups\[\$i\]\{num\})}/\$dirDisplay   ")}
 
 <form name="form1" method="post" action="\$MyURL">
 <input type="hidden" name="num" value="\$num">
@@ -819,7 +819,7 @@ the backups:
      Select the backup number to see the file attributes.
 </ul>
 
-\${h2("History of \${EscHTML(\$dirDisplay)}")}
+\${h2("History of \$dirDisplay")}
 
 <br>
 <table border cellspacing="2" cellpadding="3">
@@ -907,7 +907,7 @@ $Lang{Wrong_user__my_userid_is___} =
 $Lang{Only_privileged_users_can_stop_or_start_backups} = 
                   "Only privileged users can stop or start backups on"
 		. " \${EscHTML(\$volset)}.";
-$Lang{Invalid_number__num} = "Invalid number \$num";
+$Lang{Invalid_number__num} = "Invalid number \${EscHTML(\$In{num})}";
 $Lang{Unable_to_open__file__configuration_problem} = "Unable to open \$file: configuration problem?";
 $Lang{Only_privileged_users_can_view_log_or_config_files} = "Only privileged users can view log or config files.";
 $Lang{Only_privileged_users_can_view_log_files} = "Only privileged users can view log files.";
@@ -1136,7 +1136,7 @@ $Lang{No} = "no";
 $Lang{Yes} = "yes";
 
 $Lang{The_directory_is_empty} = <<EOF;
-<tr><td bgcolor="#ffffff">The directory \${EscHTML(\$dirDisplay)} is empty
+<tr><td bgcolor="#ffffff">The directory \$dirDisplay is empty
 </td></tr>
 EOF
 
@@ -1295,7 +1295,7 @@ $Lang{CfgEdit_Title_Schedule} = "Schedule";
 $Lang{CfgEdit_Title_Full_Backups} = "Full Backups";
 $Lang{CfgEdit_Title_Incremental_Backups} = "Incremental Backups";
 $Lang{CfgEdit_Title_Blackouts} = "Blackouts";
-$Lang{CfgEdit_Title_Other} = "Other";
+#XXX$Lang{CfgEdit_Title_Other} = "Other";
 $Lang{CfgEdit_Title_Backup_Settings} = "Backup Settings";
 $Lang{CfgEdit_Title_Client_Lookup} = "Ping Options";
 $Lang{CfgEdit_Title_Other} = "Other";

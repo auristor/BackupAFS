@@ -17,7 +17,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2001-2009  Craig Barratt
@@ -39,7 +39,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -74,7 +74,7 @@ BackupAFS cannot load the package $pkg, which is included in the
 BackupAFS distribution.  This probably means you did not cd to the
 unpacked BackupAFS distribution before running configure.pl, eg:
 
-    cd BackupAFS-1.0.0
+    cd BackupAFS-1.0.8
     ./configure.pl
 
 Please try again.
@@ -183,21 +183,21 @@ EOF
 $opts{fhs} = 1 if ( !defined($opts{fhs}) && $ConfigPath eq "" );
 $opts{fhs} = 0 if ( !defined($opts{fhs}) );
 
-my $bpc;
+my $bafs;
 if ( $ConfigPath ne "" && -r $ConfigPath ) {
     (my $confDir = $ConfigPath) =~ s{/[^/]+$}{};
     die("BackupAFS::Lib->new failed\n")
-            if ( !($bpc = BackupAFS::Lib->new(".", ".", $confDir, 1)) );
-    %Conf = $bpc->Conf();
+            if ( !($bafs = BackupAFS::Lib->new(".", ".", $confDir, 1)) );
+    %Conf = $bafs->Conf();
     %OrigConf = %Conf;
     if ( !$opts{fhs} ) {
         ($Conf{TopDir} = $ConfigPath) =~ s{/[^/]+/[^/]+$}{}
                     if ( $Conf{TopDir} eq '' );
-        $bpc->{LogDir} = $Conf{LogDir}  = "$Conf{TopDir}/log"
+        $bafs->{LogDir} = $Conf{LogDir}  = "$Conf{TopDir}/log"
                     if ( $Conf{LogDir} eq '' );
     }
-    $bpc->{ConfDir} = $Conf{ConfDir} = $confDir;
-    my $err = $bpc->ServerConnect($Conf{ServerHost}, $Conf{ServerPort}, 1);
+    $bafs->{ConfDir} = $Conf{ConfDir} = $confDir;
+    my $err = $bafs->ServerConnect($Conf{ServerHost}, $Conf{ServerPort}, 1);
     if ( $err eq "" ) {
         print <<EOF;
 
@@ -238,6 +238,7 @@ my %Programs = (
     cat            => "CatPath",
     gzip           => "GzipPath",
     pigz           => "PigzPath",
+    rrdtool        => "RrdToolPath",
     vos            => "AfsVosPath",
 );
 
@@ -572,6 +573,7 @@ foreach my $prog ( qw(
 	bin/BackupAFS_compress
 	bin/BackupAFS_distributeFulls
 	bin/BackupAFS_dump
+        bin/BackupAFS_fix_backups_file
 	bin/BackupAFS_fixupBackupSummary
 	bin/BackupAFS_getVols
 	bin/BackupAFS_migrate_compress_volsets
@@ -579,6 +581,7 @@ foreach my $prog ( qw(
 	bin/BackupAFS_migrate_unmangle_datadir
 	bin/BackupAFS_nightly
 	bin/BackupAFS_restore
+	bin/BackupAFS_rrdUpdate
 	bin/BackupAFS_sendEmail
 	bin/BackupAFS_serverMesg
 	bin/BackupAFS_tarCreate
@@ -638,7 +641,7 @@ if ( $Conf{CgiImageDir} ne "" ) {
     #
     # Install new CSS file, making a backup copy if necessary
     #
-    my $cssBackup = "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css.pre-1.0.0";
+    my $cssBackup = "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css.pre-1.0.8";
     if ( -f "$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css" && !-f $cssBackup ) {
 	rename("$DestDir$Conf{CgiImageDir}/BackupAFS_stnd.css", $cssBackup);
     }
@@ -815,7 +818,7 @@ foreach my $param ( keys(%{$opts{"config-override"}}) ) {
 #
 # Now backup and write the config file
 #
-my $confCopy = "$dest.pre-1.0.0";
+my $confCopy = "$dest.pre-1.0.8";
 if ( -f $dest && !-f $confCopy ) {
     #
     # Make copy of config file, preserving ownership and modes

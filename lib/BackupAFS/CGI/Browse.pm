@@ -8,7 +8,7 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2003-2009  Craig Barratt
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -67,7 +67,7 @@ sub action
     #
     # default to the newest backup
     #
-    if ( !defined($In{num}) && defined(@Backups) && @Backups > 0 ) {
+    if ( !defined($In{num}) && @Backups && @Backups > 0 ) {
         $i = @Backups - 1;
         $num = $Backups[$i]{num};
     }
@@ -75,8 +75,8 @@ sub action
     for ( $i = 0 ; $i < @Backups ; $i++ ) {
         last if ( $Backups[$i]{num} == $num );
     }
-    if ( $i >= @Backups ) {
-        ErrorExit("Backup number $num for volset ${EscHTML($volset)} does"
+    if ( $i >= @Backups || $num !~ /^\d+$/ ) {
+        ErrorExit("Backup number ${EscHTML($num)} for volset ${EscHTML($volset)} does"
 	        . " not exist.");
     }
     my $backupTime = timeStamp2($Backups[$i]{startTime});
@@ -278,10 +278,34 @@ EOF
 	}
     }
     $share = $currDir;
-    my $dirDisplay = decode_utf8("$share/$dir");
-    $dirDisplay =~ s{//+}{/}g;
-    $dirDisplay =~ s{/+$}{}g;
-    $dirDisplay = "/" if ( $dirDisplay eq "" );
+    my $shareURI = $share;
+    $shareURI =~ s/([^\w.\/-])/uc sprintf("%%%02x", ord($1))/eg;
+
+    #
+    # allow each level of the directory path to be navigated to
+    #
+    my($thisPath, $dirDisplay);
+    my $dirClean = $dir;
+    $dirClean =~ s{//+}{/}g;
+    $dirClean =~ s{/+$}{};
+    my @dirElts = split(/\//, $dirClean);
+    @dirElts = ("/") if ( !@dirElts );
+    foreach my $d ( @dirElts ) {
+        my($thisDir);
+
+        if ( $thisPath eq "" ) {
+            $thisDir  = decode_utf8($share);
+            $thisPath = "/";
+        } else {
+            $thisPath .= "/" if ( $thisPath ne "/" );
+            $thisPath .= "$d";
+            $thisDir = decode_utf8($d);
+        }
+        my $thisPathURI = $thisPath;
+        $thisPathURI =~ s/([^\w.\/-])/uc sprintf("%%%02x", ord($1))/eg;
+        $dirDisplay .= "/" if ( $dirDisplay ne "" );
+        $dirDisplay .= "<a href=\"$MyURL?action=browse&volset=${EscURI($volset)}&num=$num&share=$shareURI&dir=$thisPathURI\">${EscHTML($thisDir)}</a>";
+    }
     my $filledBackup;
 
     if ( (my @mergeNums = @{$view->mergeNums}) > 1 ) {
@@ -310,9 +334,7 @@ EOF
 	$fileStr = eval("qq{$Lang->{The_directory_is_empty}}");
     }
     my $pathURI  = $dir;
-    my $shareURI = $share;
     $pathURI  =~ s/([^\w.\/-])/uc sprintf("%%%02x", ord($1))/eg;
-    $shareURI =~ s/([^\w.\/-])/uc sprintf("%%%02x", ord($1))/eg;
     if ( my @otherDirs = $view->backupList($share, $dir) ) {
         my $otherDirs;
         foreach my $i ( @otherDirs ) {
@@ -326,6 +348,7 @@ EOF
     }
     $dir   = decode_utf8($dir);
     $share = decode_utf8($share);
+
     my $content = eval("qq{$Lang->{Backup_browse_for__volset}}");
     Header(eval("qq{$Lang->{Browse_backup__num_for__volset}}"), $content);
     Trailer();

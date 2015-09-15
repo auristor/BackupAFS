@@ -8,7 +8,7 @@
 #   functions used by BackupAFS.
 #
 # AUTHORS
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
 #
 # COPYRIGHT
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -72,7 +72,7 @@ require DynaLoader;
 %EXPORT_TAGS = ('BPC_DT_ALL' => [@EXPORT, @EXPORT_OK]);
 
 BEGIN {
-    eval "use IO::Dirent qw( readdirent DT_DIR );";
+    eval "use IO::Dirent qw( readdirent );";
     $IODirentLoaded = 1 if ( !$@ );
 };
 
@@ -131,7 +131,7 @@ sub new
 
     my $bafs = bless {
 	%$paths,
-        Version => '1.0.0',
+        Version => '1.0.8',
     }, $class;
 
     $bafs->{storage} = BackupAFS::Storage->new($paths);
@@ -478,21 +478,38 @@ sub dirRead
         #
         # Make sure the IO::Dirent really works - some installs
         # on certain file systems (eg: XFS) don't return a valid type.
+        # and some fail to return valid inode numbers.
         #
+        # Also create a temporary file to make sure the inode matches.
+        #
+        my $tempTestFile = ".TestFileDirent.$$";
+        my $fullTempTestFile = $bafs->{TopDir} . "/$tempTestFile";
+        if ( open(my $fh, ">", $fullTempTestFile) ) {
+            close($fh);
+        }
         if ( opendir(my $fh, $bafs->{TopDir}) ) {
-            my $dt_dir = eval("DT_DIR");
             foreach my $e ( readdirent($fh) ) {
-                if ( $e->{name} eq "." && $e->{type} == $dt_dir ) {
-                    $IODirentOk = 1;
-                    last;
+                if ( $e->{name} eq "."
+                        && $e->{type} == BPC_DT_DIR
+                        && $e->{inode} == (stat($bafs->{TopDir}))[1] ) {
+                    $IODirentOk |= 0x1;
+                }
+                if ( $e->{name} eq $tempTestFile
+                        && $e->{type} == BPC_DT_REG
+                        && $e->{inode} == (stat($fullTempTestFile))[1] ) {
+                    $IODirentOk |= 0x2;
                 }
             }
             closedir($fh);
         }
+        unlink($fullTempTestFile) if ( -f $fullTempTestFile );
         #
         # if it isn't ok then don't check again.
         #
-        $IODirentLoaded = 0 if ( !$IODirentOk );
+        if ( $IODirentOk != 0x3 ) {
+            $IODirentLoaded = 0;
+            $IODirentOk     = 0;
+        }
     }
     if ( $IODirentOk ) {
         @entries = sort({ $a->{inode} <=> $b->{inode} } readdirent($fh));
@@ -1093,7 +1110,7 @@ sub cmdVarSubstitute
     # indicating this is perl code.
     #
     if ( (ref($template) eq "ARRAY" ? $template->[0] : $template) =~ /^\&/ ) {
-        return $template;
+        return ref($template) eq "ARRAY" ? $template : [$template];
     }
     if ( ref($template) ne "ARRAY" ) {
 	#
@@ -1155,7 +1172,7 @@ sub cmdExecOrEval
     my($bafs, $cmd, @args) = @_;
     
     if ( (ref($cmd) eq "ARRAY" ? $cmd->[0] : $cmd) =~ /^\&/ ) {
-        $cmd = join(" ", $cmd) if ( ref($cmd) eq "ARRAY" );
+        $cmd = join(" ", @$cmd) if ( ref($cmd) eq "ARRAY" );
 	print(STDERR "cmdExecOrEval: about to eval perl code $cmd\n")
 			if ( $bafs->{verbose} );
         eval($cmd);
@@ -1197,7 +1214,7 @@ sub cmdSystemOrEvalLong
     
     $? = 0;
     if ( (ref($cmd) eq "ARRAY" ? $cmd->[0] : $cmd) =~ /^\&/ ) {
-        $cmd = join(" ", $cmd) if ( ref($cmd) eq "ARRAY" );
+        $cmd = join(" ", @$cmd) if ( ref($cmd) eq "ARRAY" );
 	print(STDERR "cmdSystemOrEval: about to eval perl code $cmd\n")
 			if ( $bafs->{verbose} );
         $out = eval($cmd);

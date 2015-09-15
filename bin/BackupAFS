@@ -30,6 +30,7 @@
 #
 # COPYRIGHT
 #   Copyright (C) 2001-2009  Craig Barratt
+#   Copyright (C) 2010-2014  Stephen Joyce
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -47,7 +48,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -1108,6 +1109,17 @@ sub Main_Check_Job_Messages
                         $BackupAFSNightlyJobs = 0;
                         $RunNightlyWhenIdle = 0;
                         $CmdJob = "";
+                        #
+                        # Queue bin/BackupAFS_rrdUpdate so that the pool size graphs
+                        # can be updated
+                        #
+                        unshift(@CmdQueue, {
+                                host    => $bafs->adminJob(-1),
+                                user    => "BackupAFS",
+                                reqTime => time,
+                                cmd     => ["$BinDir/BackupAFS_rrdUpdate"],
+                            });
+                        $CmdQueueOn{$bafs->adminJob(-1)} = 1;
                     }
                 } else {
                     $CmdJob = "";

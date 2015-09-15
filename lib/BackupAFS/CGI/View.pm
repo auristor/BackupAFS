@@ -8,11 +8,11 @@
 #
 # AUTHOR
 #   Craig Barratt  <cbarratt@users.sourceforge.net>
-#   Stephen Joyce <stephen@physics.unc.edu>
+#   Stephen Joyce <stephen@email.unc.edu>
 #
 # COPYRIGHT
-#   Copyright (C) 2003-2009  Craig Barratt
-#   Copyright (C) 2010 Stephen Joyce
+#   Copyright (C) 2003-2013  Craig Barratt
+#   Copyright (C) 2010-2014  Stephen Joyce
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.8, released 15 Sep 2015.
 #
 # See http://backupafs.sourceforge.net.
 #
@@ -56,6 +56,22 @@ sub action
 
     ErrorExit(eval("qq{$Lang->{Invalid_number__num}}"))
 		    if ( $num ne "" && $num !~ /^\d+$/ );
+    if ( $type eq "diskUsage" && $Privileged ) {
+        $file = "$LogDir/diskUsage$num.png";
+        if ( open($fh, "<", $file) ) {
+            my $data;
+            print "Content-Type: image/png\r\n";
+            print "Content-Transfer-Encoding: binary\r\n\r\n";
+            while ( sysread($fh, $data, 1024 * 1024) > 0 ) {
+                print $data;
+            }
+            close($fh);
+        }
+        return;
+    }
+    if ( $type ne "docs" && !$Privileged ) {
+        ErrorExit($Lang->{Only_privileged_users_can_view_log_or_config_files});
+    }
     if ( $type eq "XferLOG" ) {
         #$file = "$TopDir/volsets/$volset/SmbLOG$ext";
         $file = "$TopDir/volsets/$volset/XferLOG$ext" if ( !-f $file && !-f "$file.z");
@@ -101,9 +117,6 @@ sub action
     } else {
         $file = "$LogDir/LOG$ext";
         $linkVolSets = 1;
-    }
-    if ( $type ne "docs" && !$Privileged ) {
-        ErrorExit($Lang->{Only_privileged_users_can_view_log_or_config_files});
     }
     if ( !-f $file && -f "$file.z" ) {
         $file .= ".z";

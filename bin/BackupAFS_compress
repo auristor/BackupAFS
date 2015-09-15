@@ -9,7 +9,7 @@
 #   attempts to compress it.
 #
 # AUTHOR
-#   Stephen Joyce  <stephen@physics.unc.edu>
+#   Stephen Joyce  <stephen@email.unc.edu>
 #
 # COPYRIGHT
 #   Copyright (C) 2001-2009  Stephen Joyce
@@ -30,7 +30,7 @@
 #
 #========================================================================
 #
-# Version 1.0.0, released 22 Nov 2010.
+# Version 1.0.0, released 15 Sep 2015.
 #
 #========================================================================
 
@@ -145,9 +145,9 @@ print "-------\nStarted $0 for $1\n";
     $Backups[$num]{nFilesNew}     += $nFilesNew;
     $Backups[$num]{sizeNew}       += $sizeNew;
     $Backups[$num]{sizeNewComp}   += $sizeNewComp;
-    $Backups[$num]{noFill}         = 0;
-    $Backups[$num]{fillFromNum}    = 0;
-    $Backups[$num]{compress}	  = $CompressLevel;
+    $Backups[$num]{noFill}         = $Backups[$num]{type} eq "incr" ? 1 : 0;
+    $Backups[$num]{fillFromNum}    = $fillFromNum;
+    $Backups[$num]{compress}	   = $CompressLevel;
     #
     # Save just this backup's info in case the main backups file
     # gets corrupted
