@@ -457,8 +457,11 @@ $VOS = $Conf{AfsVosPath};
 open GS,"$VOS listaddrs -localauth|" or die "cant run vos listaddrs: $!\n";
     while (<GS>) {
         chomp;
-        my $addr=$_;
-        next if ($addr=~/:/);
+        if ($_=~/:/) {
+	    my ($addr, $port)=split /:/,$_;
+	} else {
+	    my $addr=$_;
+	}
         my $delay = $bafs->CheckVolSetAlive($addr);
         print "ping delay to $addr: $delay\n";
         print "Cannot contact AFS fileserver $addr\n" if ( $delay < 0 );

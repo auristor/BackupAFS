@@ -83,7 +83,12 @@ for ( my $i=1; $i<=$MaxEntries; $i++ ) {
 	open GS,"$VOS listaddrs -localauth|" or die "cant run vos listaddrs: $!\n";
 	while (<GS>) {
 		chomp;
-		$addr=$_;
+		if ($_=~/:/) {
+		    my ($addr, $port)=split /:/,$_;
+                } else {
+                    my $addr=$_;
+                }
+
 		if ($addr=~/^$sre$/) {
 			#print "server: $addr\n";
 		} else { next; }
