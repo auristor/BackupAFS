@@ -449,9 +449,9 @@ foreach my $dir ( (
 #
 # Check if all AFS fileservers in @cell are alive.
 #
-my ($VOS) = grep { -x $_ } qw(/usr/bin/vos /usr/sbin/vos /usr/afsws/etc/vos);
 
-$VOS ||= '/usr/afsws/etc/vos';
+$VOS = $Conf{AfsVosPath};
+
 
 #die("BackupAFS::Lib->new failed\n") if ( !(my $bafs = BackupAFS::Lib->new) );
 open GS,"$VOS listaddrs -localauth|" or die "cant run vos listaddrs: $!\n";
